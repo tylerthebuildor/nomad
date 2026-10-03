@@ -1,0 +1,12 @@
+# Copy to terraform.tfvars (gitignored) OR pass via TF_VAR_* env vars.
+# Do NOT commit real values.
+
+region         = "us-east-1"
+instance_type  = "t4g.large"
+root_volume_gb = 100
+
+# Prefer passing the auth key via env so it never hits disk:
+#   export TF_VAR_tailscale_auth_key=tskey-auth-xxxxxxxx
+# Generate a SINGLE-USE, NON-EPHEMERAL, SHORT-EXPIRY key in the Tailscale admin
+# console (Settings -> Keys).
+# tailscale_auth_key = "tskey-auth-xxxxxxxx"

@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2154 # the auth key and hostname are filled in by Terraform (templatefile)
+# Nomad first-boot bootstrap (minimal slice): install base packages + Tailscale
+# and join the tailnet with Tailscale SSH enabled. The full dev environment is
+# installed next, over the tailnet, by `make bootstrap` (bootstrap/setup.sh),
+# which `make up` runs automatically once the box is on the tailnet.
+#
+# Note: no `set -x` on purpose so the auth key is not echoed into the cloud-init
+# logs. The key is single-use and short-lived; it is consumed here.
+set -euo pipefail
+
+# Base packages. mosh gives roaming-proof, low-latency mobile sessions; it rides
+# the tailnet (same path as SSH), so no security-group change is needed.
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y mosh
+
+# Install Tailscale.
+curl -fsSL https://tailscale.com/install.sh | sh
+
+# Join the tailnet with Tailscale SSH enabled. MagicDNS registers this host as
+# its hostname, so you connect with `tailscale ssh ubuntu@<hostname>`.
+tailscale up \
+  --authkey="${tailscale_auth_key}" \
+  --hostname="${tailscale_hostname}" \
+  --ssh
+
+# Harden: access is via Tailscale SSH, so disable the public OpenSSH daemon
+# entirely. Removes the only public-interface listener (defense in depth on top
+# of the zero-inbound security group). Tailscale SSH is unaffected.
+systemctl disable --now ssh.socket ssh.service 2>/dev/null || true
+
+# Keep the OS hostname stable across reboots (the dev bootstrap sets it to nomad).
+echo 'preserve_hostname: true' > /etc/cloud/cloud.cfg.d/99-preserve-hostname.cfg

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# note , append a timestamped entry to the Nomad standup context log.
+#
+# The `standup` skill reads this log so the agent knows what happened in the
+# human world (meetings, pivots, priority/scope changes) that git and code cannot
+# reveal. Drop context here whenever it happens; the next standup picks it up.
+#
+# Usage:
+#   note "quick one-liner"    append the argument text
+#   note                      read from stdin (type, or speak via Wispr; Ctrl-D to end)
+set -euo pipefail
+
+LOG="${NOMAD_CONTEXT_LOG:-$HOME/dev/_nomad/context.md}"
+mkdir -p "$(dirname "$LOG")"
+ts="$(date '+%Y-%m-%d %H:%M %Z')"
+
+if [ "$#" -gt 0 ]; then
+  body="$*"
+else
+  echo "Context (meetings, pivots, priorities). Ctrl-D to finish:" >&2
+  body="$(cat)"
+fi
+
+if [ -z "${body//[[:space:]]/}" ]; then
+  echo "empty, nothing added" >&2
+  exit 0
+fi
+
+printf '\n## %s\n%s\n' "$ts" "$body" >> "$LOG"
+echo "added to ${LOG/#$HOME/~}" >&2

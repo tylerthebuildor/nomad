@@ -1,0 +1,19 @@
+# Terraform
+terraform/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Local config and secrets: never commit
+terraform/backend.hcl
+*.tfvars
+!*.tfvars.example
+.env
+
+# Personal settings (see config/*.example): asked once by make up, never committed
+config/auth.env
+config/git.env
+
+# make up working files (plans, new-box marker)
+terraform/.nomad*

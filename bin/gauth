@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# gauth , shortcut for `auth gcloud` (Google Cloud sign-in). See bin/auth.
+exec "$(dirname "$(readlink -f "$0")")/auth" gcloud "$@"

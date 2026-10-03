@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# auth , phone-friendly sign-in for the CLIs on this box.
+#
+# One command for every service (gcloud, aws, gh, vercel, claude). Each sign-in
+# shows a small card with a short link to open on your phone, so nothing long
+# needs copying. Services live in auth/<name>.sh (see auth/README.md); your
+# accounts per service live in ~/.config/nomad/auth.env.
+#
+# Usage:
+#   auth                 status board: pick a service to sign in (esc to quit)
+#   auth <service>       sign in to one, if it is signed out (-f to force)
+#   auth <service> --check   exit 0 if signed in, 1 if not (prints who)
+#   auth --status        every service's status, as plain text
+#   auth --list          services, how long sign-ins last, and the error text
+#                        that means "signed out" (used by Claude's auth skill)
+#   inside tmux:         prefix + A opens the board full-screen
+set -uo pipefail
+
+SELF="$(readlink -f "$0")"
+# Popups and scripts may start without the login shell's PATH; add where the
+# CLIs live (Claude Code in ~/.local/bin, vercel under the newest nvm Node).
+node_bin="$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -1)"
+PATH="$HOME/.local/bin${node_bin:+:$node_bin}:/usr/local/bin:$PATH"
+
+for SHARE in "${NOMAD_SHARE:-}" "$HOME/.local/share/nomad" "$(dirname "$SELF")/.."; do
+  [ -n "$SHARE" ] && [ -f "$SHARE/lib/ui.sh" ] && [ -d "$SHARE/auth" ] && break
+done
+[ -f "$SHARE/lib/ui.sh" ] || { echo "auth: cannot find lib/ui.sh and auth/ (re-run make bootstrap)" >&2; exit 1; }
+AUTH_DIR="$SHARE/auth"
+. "$SHARE/lib/ui.sh"
+. "$AUTH_DIR/_flows.sh"
+
+# Settings: the config file, but AUTH_* variables already in the environment win,
+# so one-offs like `AUTH_AWS_MODE=login auth aws` work.
+CONFIG="${NOMAD_AUTH_CONFIG:-$HOME/.config/nomad/auth.env}"
+if [ -f "$CONFIG" ]; then
+  env_overrides="$(for v in $(compgen -e | grep '^AUTH_'); do declare -p "$v"; done)"
+  # shellcheck disable=SC1090
+  . "$CONFIG"
+  eval "$env_overrides"
+fi
+
+services() {
+  local s
+  if [ -n "${AUTH_SERVICES:-}" ]; then
+    for s in $AUTH_SERVICES; do [ -f "$AUTH_DIR/$s.sh" ] && echo "$s"; done
+  else
+    for s in "$AUTH_DIR"/[!_]*.sh; do s="${s##*/}"; echo "${s%.sh}"; done
+  fi
+}
+
+# Run one of a service's functions in a subshell, so services cannot leak into
+# each other.
+# shellcheck source=/dev/null # services are found at runtime (auth/<name>.sh)
+svc() { local name="$1"; shift; ( . "$AUTH_DIR/$name.sh"; "$@" ); }
+
+result() { # name -> prints the final ✓/✗ line after a sign-in
+  local who rc
+  who="$(svc "$1" svc_status)"; rc=$?
+  if [ "$rc" -eq 0 ]; then printf '  %s✓%s %s%s%s\n' "$LIVE" "$R" "$NAME" "$who" "$R"
+  else printf '  %s✗ Not signed in%s %s(%s)%s\n' "$BAD" "$R" "$DIM" "$who" "$R"; fi
+  return "$rc"
+}
+
+sign_in() { # name [-f]
+  local name="$1" force="${2:-}" who rc
+  [ -f "$AUTH_DIR/$name.sh" ] || { echo "auth: no service '$name' (try: $(services | tr '\n' ' '))" >&2; return 2; }
+  if [ "$force" != "-f" ] && who="$(svc "$name" svc_status)"; then
+    printf '  %s✓%s %s%s%s %s(already signed in · auth %s -f to redo)%s\n' \
+      "$LIVE" "$R" "$NAME" "$who" "$R" "$FAINT" "$name" "$R"
+    return 0
+  fi
+  svc "$name" svc_login
+  result "$name"; rc=$?
+  [ -t 1 ] && sleep 1.5 # long enough to read the result before a popup closes
+  return "$rc"
+}
+
+# All statuses, checked in parallel (some take a couple of seconds each).
+# Prints: name <tab> rc <tab> detail, in service order.
+statuses() {
+  local tmp name; tmp="$(mktemp -d)"
+  for name in $(services); do
+    ( who="$(svc "$name" svc_status)"; printf '%s\t%s\t%s\n' "$name" "$?" "$who" >"$tmp/$name" ) &
+  done
+  wait
+  for name in $(services); do cat "$tmp/$name"; done
+  rm -rf "$tmp"
+}
+
+row() { # name rc detail width
+  local icon detail="$3"
+  case "$2" in
+    0) icon="${LIVE}✓"; detail="${DIM}${detail}" ;;
+    1) icon="${BAD}✗"; detail="${BAD}${detail}" ;;
+    *) icon="${FAINT}–"; detail="${FAINT}${detail}" ;;
+  esac
+  printf '%s\t%s %s%s%s  %s%s\n' "$1" "$icon" "$NAME" "$(fit "$1" 6)" "$R" "$detail" "$R"
+}
+
+board() {
+  command -v fzf >/dev/null 2>&1 || { plain_status; return; }
+  local lines ok total out sel
+  while true; do
+    printf '\n  %schecking sign-ins…%s' "$FAINT" "$R"
+    lines="$(statuses)"
+    total="$(grep -c . <<<"$lines")"; ok="$(awk -F'\t' '$2 == 0' <<<"$lines" | grep -c .)"
+    out="$(awk -F'\t' '$2 == 1' <<<"$lines" | grep -c .)"
+    local sep="  "; [ "$(cols)" -lt 42 ] && sep=$'\n'
+    sel="$(
+      { [ "$out" -gt 1 ] && printf '@all\t%s↻ sign in to the %s signed out%s\n' "$ACC$B" "$out" "$R"
+        while IFS=$'\t' read -r name rc who; do row "$name" "$rc" "$who"; done <<<"$lines"; } |
+      fzf --ansi --delimiter='\t' --with-nth=2 --no-sort --reverse --height=100% \
+        --header="$(nomad_header "sign-ins" "$ok of $total signed in")
+${ACC}⏎${R} ${DIM}sign in${R}${sep}${ACC}esc${R} ${DIM}done${R}
+${LIVE}✓${R} ${FAINT}signed in${R}  ${BAD}✗${R} ${FAINT}signed out${R}  ${FAINT}– not set up${R}" \
+        --header-first --info=hidden --no-scrollbar --prompt='  › ' --pointer='▌' --ellipsis='…' \
+        --margin=1,0,0,0 --color="$FZF_COLORS"
+    )" || return 0
+    sel="${sel%%$'\t'*}"
+    clear
+    if [ "$sel" = "@all" ]; then
+      while IFS=$'\t' read -r name rc _; do [ "$rc" = 1 ] && sign_in "$name"; done <<<"$lines"
+    else
+      sign_in "$sel" -f
+    fi
+  done
+}
+
+plain_status() {
+  local name rc who bad=0
+  while IFS=$'\t' read -r name rc who; do
+    case "$rc" in 0) m="✓" ;; 1) m="✗"; bad=1 ;; *) m="–" ;; esac
+    printf '%s %-7s %s\n' "$m" "$name" "$who"
+  done < <(statuses)
+  return "$bad"
+}
+
+list() {
+  local name
+  for name in $(services); do
+    # shellcheck source=/dev/null # found at runtime
+    ( . "$AUTH_DIR/$name.sh"
+      printf '%s (%s) · lasts: %s\n  signed out looks like: %s\n' "$name" "$SVC_NAME" "$SVC_LASTS" "$SVC_SIGNED_OUT" )
+  done
+}
+
+case "${1:-}" in
+  "") if [ -t 0 ] && [ -t 1 ]; then board; else plain_status; fi ;;
+  -h|--help) sed -n '2,18p' "$SELF" | sed 's/^# \{0,1\}//' ;;
+  --status) plain_status ;;
+  --list) list ;;
+  -*) echo "auth: unknown option $1 (see auth --help)" >&2; exit 2 ;;
+  *)
+    name="$1"; shift
+    if [ "${1:-}" = "--check" ]; then
+      [ -f "$AUTH_DIR/$name.sh" ] || { echo "auth: no service '$name'" >&2; exit 2; }
+      svc "$name" svc_status
+    else
+      sign_in "$name" "${1:-}"
+    fi ;;
+esac
