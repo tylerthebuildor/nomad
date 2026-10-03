@@ -6,7 +6,8 @@ is: does it make the box safer, or using it from a phone nicer?
 ## Making a change
 
 1. Branch from `main` and open a pull request; every change needs the owner's
-   review before it merges.
+   review and passing checks before it merges (the rules for `main` are in
+   `.github/rulesets/main.json`).
 2. Run the checks first. They are the same ones CI runs:
 
    ```sh
