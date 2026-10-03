@@ -14,8 +14,6 @@ Leave the laptop. Build from anywhere.
 ![Public ports](https://img.shields.io/badge/public_ports-0-ffaf00?style=flat-square)
 ![Claude Code](https://img.shields.io/badge/Claude_Code-ready-ff8700?style=flat-square&logo=anthropic&logoColor=white)
 
-[Phone setup](docs/phone.md)
-
 </div>
 
 ---
@@ -47,13 +45,27 @@ tailnet (see *How the box joins your tailnet* below). It takes about 6 minutes.
 
 ## 📱 Connect
 
+From your computer: `mosh nomad` (or `ssh nomad`).
+
+From your Android phone, once:
+
+1. Install **Tailscale** from the Play Store and sign in with the same account.
+2. Install **Termux** from [F-Droid](https://f-droid.org) (the Play Store's
+   Termux is an old build). F-Droid warns it is built for an older Android:
+   that is expected for the real Termux.
+3. Open Termux and paste:
+
 ```sh
-mosh nomad     # or: ssh nomad
+curl -fsSL https://raw.githubusercontent.com/tylerthebuildor/nomad/main/phone/setup.sh | bash -s nomad
 ```
 
-`make up` offers the `nomad` shortcut on your computer. On your phone, set up
-Termux once with **[docs/phone.md](docs/phone.md)** (about 10 minutes), then it is the same
-`mosh nomad`.
+It installs mosh, adds the `nomad` shortcut and an extra-keys row (Esc, Ctrl,
+arrows), and, if you say yes, makes every new Termux tab open your box. Every
+step is commented in [phone/setup.sh](phone/setup.sh) if you would rather read it
+first or do it by hand; add `--remove` to the end to undo it.
+
+**iPhone:** in Blink Shell or Termius, add host `nomad`, user `ubuntu`, and
+connect with mosh. **A second box:** use its name instead of `nomad`.
 
 ## 🗂️ Every login: the session menu
 
@@ -132,6 +144,7 @@ scripts/     what make runs on your computer: checks, settings, Terraform, Tails
 terraform/   the AWS infrastructure
 box/         everything installed on the box: setup.sh, the t and auth commands,
              sign-in services (box/auth/), Claude's skill
+phone/       setup.sh for Termux on your phone
 lib/ui.sh    the shared look (colors, the nomad header)
 config/      your settings; only the .example files are committed
 ```
