@@ -66,24 +66,24 @@ ensure-state:
 		printf '  $(OK)✓$(R) %-18s $(DIM)created s3://%s (encrypted, versioned, private)$(R)\n' "State bucket" "$(STATE_BUCKET)"; \
 	}
 
-# Checks this computer and offers to fix what is missing (see bootstrap/preflight.sh).
+# Checks this computer and offers to fix what is missing (see scripts/preflight.sh).
 preflight:
-	@bash bootstrap/preflight.sh
+	@bash scripts/preflight.sh
 
 # Your git identity and sign-in accounts for the box, saved in config/
 # (gitignored). make up asks only for what is missing; this reviews everything.
 settings:
-	@bash bootstrap/settings.sh --edit
+	@bash scripts/settings.sh --edit
 
 # Tailnet lock: new devices join only with a signing device's approval.
 # Signers: this computer and the box. Shows recovery secrets to save.
 lock:
-	@bash bootstrap/tailscale.sh lock $(PROJECT)
+	@bash scripts/tailscale.sh lock $(PROJECT)
 
 # make up's version: asks only for what is not saved yet.
 .PHONY: _settings
 _settings:
-	@bash bootstrap/settings.sh
+	@bash scripts/settings.sh
 
 init: ensure-state
 	@log="$$(mktemp)"; $(AWS_CREDS) $(TF) init -input=false -reconfigure -no-color \
@@ -96,41 +96,37 @@ init: ensure-state
 	|| { cat "$$log"; rm -f "$$log"; printf '  $(BAD)✗ Terraform init failed (above).$(R)\n'; exit 1; }
 
 # One command, start to finish: check this computer, your settings, Terraform
-# (bootstrap/apply.sh: plan, summarize, confirm, apply; a new box joins your
+# (scripts/apply.sh: plan, summarize, confirm, apply; a new box joins your
 # tailnet first), then wait for the box and run `make bootstrap`.
 up: preflight _settings init
-	@$(AWS_CREDS) bash bootstrap/apply.sh $(PROJECT) $(REGION)
+	@$(AWS_CREDS) bash scripts/apply.sh $(PROJECT) $(REGION)
 	@# Plain `make`, not $$(MAKE): make runs any line naming $$(MAKE) even under
 	@# `make -n`, and nothing here should run during a dry run. The sub-make still
 	@# inherits PROJECT, REGION and the like through MAKEFLAGS.
-	@[ -n "$(SKIP_BOOTSTRAP)" ] || { bash bootstrap/wait-for-box.sh $(PROJECT) && make --no-print-directory bootstrap; }
+	@[ -n "$(SKIP_BOOTSTRAP)" ] || { bash scripts/wait-for-box.sh $(PROJECT) && make --no-print-directory bootstrap; }
 	@# A just-created box: offer tailnet lock once (make lock any time later).
 	@if [ -f terraform/.nomad-new-box ] && [ -z "$(SKIP_BOOTSTRAP)" ]; then \
-		rm -f terraform/.nomad-new-box; bash bootstrap/tailscale.sh lock $(PROJECT) --offer; fi
+		rm -f terraform/.nomad-new-box; bash scripts/tailscale.sh lock $(PROJECT) --offer; fi
 
 plan: init
 	@$(AWS_CREDS) $(TF) plan
 
 # Destroys the box and everything Terraform made for it (you type its name to
-# confirm), then offers to remove it from your tailnet too (bootstrap/destroy.sh).
+# confirm), then offers to remove it from your tailnet too (scripts/destroy.sh).
 down: init
-	@$(AWS_CREDS) bash bootstrap/destroy.sh $(PROJECT) $(REGION)
+	@$(AWS_CREDS) bash scripts/destroy.sh $(PROJECT) $(REGION)
 
 ssh:
 	@ssh $(SSH_OPTS) ubuntu@$(PROJECT)
 
-# Install (or update) the full dev environment on the box. Idempotent: safe to
-# re-run after editing bootstrap/setup.sh. Runs over the tailnet, so it must be
-# invoked from a machine on your tailnet (phone/laptop), not from CI. Credentials
-# are still seeded by hand afterwards (see README).
-# Copies bin/, lib/, auth/, config/ and skills/ too: setup.sh installs the
-# helper scripts (t, auth, note), their shared code, your sign-in settings and
-# the Claude Code skills.
+# Install (or update) the dev environment on the box, over your tailnet: copies
+# box/ (setup.sh and what it installs), lib/ and your config/ to the box and runs
+# box/setup.sh. Idempotent; make up runs it for you.
 bootstrap:
-	@bash bootstrap/ssh-alias.sh add $(PROJECT)
+	@bash scripts/ssh-alias.sh add $(PROJECT)
 	@ssh $(SSH_OPTS) ubuntu@$(PROJECT) 'rm -rf /tmp/nomad && mkdir -p /tmp/nomad'
-	@scp -q -r $(SSH_OPTS) bootstrap bin lib auth config skills ubuntu@$(PROJECT):/tmp/nomad/
-	@ssh $(SSH_OPTS) ubuntu@$(PROJECT) "NOMAD_HOSTNAME=$(PROJECT) NOMAD_CONNECT='$$(bash bootstrap/ssh-alias.sh connect $(PROJECT))' bash /tmp/nomad/bootstrap/setup.sh"
+	@scp -q -r $(SSH_OPTS) box lib config ubuntu@$(PROJECT):/tmp/nomad/
+	@ssh $(SSH_OPTS) ubuntu@$(PROJECT) "NOMAD_HOSTNAME=$(PROJECT) NOMAD_CONNECT='$$(bash scripts/ssh-alias.sh connect $(PROJECT))' bash /tmp/nomad/box/setup.sh"
 
 fmt:
 	@$(TF) fmt

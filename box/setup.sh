@@ -16,7 +16,7 @@
 # regular user (e.g. `ubuntu`), not root.
 set -o pipefail
 
-NOMAD_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
+NOMAD_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)" # setup.sh lives in box/
 HOST="${NOMAD_HOSTNAME:-nomad}"
 if [ -f "$NOMAD_REPO/lib/ui.sh" ]; then . "$NOMAD_REPO/lib/ui.sh"
 else R="" B="" DIM="" FAINT="" ACC="" LIVE="" IDLE="" BAD=""; fi
@@ -174,16 +174,15 @@ claude_code() {
   NOTE="$(claude --version 2>/dev/null | awk '{print $1}')"
 }
 
-nomad_tools() { # bin/ -> ~/.local/bin, lib/ + auth/ -> ~/.local/share/nomad, skills/ -> ~/.claude/skills
-  mkdir -p "$HOME/.local/bin" "$HOME/.local/share/nomad" "$HOME/.claude/skills"
-  install -m 755 "$NOMAD_REPO/bin"/* "$HOME/.local/bin/" || return
-  local d
-  for d in lib auth; do
-    rm -rf "$HOME/.local/share/nomad/$d" && cp -R "$NOMAD_REPO/$d" "$HOME/.local/share/nomad/$d" || return
-  done
+nomad_tools() { # box/bin -> ~/.local/bin; lib/, box/auth -> ~/.local/share/nomad; box/skills -> ~/.claude/skills
+  local share="$HOME/.local/share/nomad"
+  mkdir -p "$HOME/.local/bin" "$share" "$HOME/.claude/skills"
+  install -m 755 "$NOMAD_REPO/box/bin"/* "$HOME/.local/bin/" || return
+  rm -rf "${share:?}/lib" "${share:?}/auth" &&
+    cp -R "$NOMAD_REPO/lib" "$share/lib" && cp -R "$NOMAD_REPO/box/auth" "$share/auth" || return
   rm -rf "$HOME/.claude/skills/gauth" # replaced by the auth skill
-  cp -R "$NOMAD_REPO/skills"/. "$HOME/.claude/skills/" || return
-  NOTE="t, auth, note · Claude skills"
+  cp -R "$NOMAD_REPO/box/skills"/. "$HOME/.claude/skills/" || return
+  NOTE="t, auth · Claude skill"
 }
 
 your_settings() { # config/ (asked once by make up) -> ~/.config/nomad

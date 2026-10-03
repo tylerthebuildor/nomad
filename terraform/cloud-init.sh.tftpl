@@ -2,7 +2,7 @@
 # shellcheck disable=SC2154 # the auth key and hostname are filled in by Terraform (templatefile)
 # Nomad first-boot bootstrap (minimal slice): install base packages + Tailscale
 # and join the tailnet with Tailscale SSH enabled. The full dev environment is
-# installed next, over the tailnet, by `make bootstrap` (bootstrap/setup.sh),
+# installed next, over the tailnet, by `make bootstrap` (box/setup.sh),
 # which `make up` runs automatically once the box is on the tailnet.
 #
 # Note: no `set -x` on purpose so the auth key is not echoed into the cloud-init

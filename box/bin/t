@@ -22,7 +22,7 @@ NEW_CMD="${NOMAD_NEW_CMD-claw}"
 
 # Shared palette, fit() and the nomad header (lib/ui.sh). t runs on every login,
 # so if that is missing it falls back to plain text instead of failing.
-for share in "${NOMAD_SHARE:-}" "$HOME/.local/share/nomad" "$(dirname "$SELF")/.."; do
+for share in "${NOMAD_SHARE:-}" "$HOME/.local/share/nomad" "$(dirname "$SELF")/../.."; do # installed, or a checkout
   [ -n "$share" ] && [ -f "$share/lib/ui.sh" ] && { . "$share/lib/ui.sh"; break; }
 done
 if ! declare -F nomad_header >/dev/null; then

@@ -7,7 +7,7 @@
 #   destroying/replacing  the FULL plan, a warning, and you type the box's name
 #                         (a replaced box loses its disk)
 #
-# A new box first needs to join your tailnet (bootstrap/tailscale.sh), and
+# A new box first needs to join your tailnet (scripts/tailscale.sh), and
 # afterwards gets its key expiry turned off. Terraform's own output goes to a
 # log, shown if something fails. Written for bash 3.2 (macOS).
 set -uo pipefail
@@ -30,7 +30,7 @@ printf '\n  %s%s◆ The box%s %s(%s · %s)%s\n\n' "$ACC" "$B" "$R" "$FAINT" "$PR
 before="$(box_id)"
 since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 if [ -z "$before" ] && [ -z "${TF_VAR_tailscale_auth_key:-}" ]; then
-  join="$(bash "$ROOT/bootstrap/tailscale.sh" join "$PROJECT")" || exit 1
+  join="$(bash "$ROOT/scripts/tailscale.sh" join "$PROJECT")" || exit 1
   eval "$join"
 fi
 if [ -z "$before" ] && [ -z "${TF_VAR_tailscale_auth_key:-}" ]; then
@@ -103,10 +103,10 @@ after="$(box_id)"
 if [ "$before" != "$after" ]; then
   touch "$ROOT/terraform/.nomad-new-box"
   # Under tailnet lock the new box joins locked out; approve it from here.
-  bash "$ROOT/bootstrap/tailscale.sh" approve "$PROJECT" || exit 1
+  bash "$ROOT/scripts/tailscale.sh" approve "$PROJECT" || exit 1
   if [ -n "${TS_API_TOKEN:-}" ]; then
-    bash "$ROOT/bootstrap/tailscale.sh" finish "$PROJECT" "$since"
-    bash "$ROOT/bootstrap/tailscale.sh" checkmode
+    bash "$ROOT/scripts/tailscale.sh" finish "$PROJECT" "$since"
+    bash "$ROOT/scripts/tailscale.sh" checkmode
   fi
 fi
 rm -f "$LOG"

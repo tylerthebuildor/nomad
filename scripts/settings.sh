@@ -2,7 +2,7 @@
 # Your personal settings for the box, asked once and saved (runs on YOUR
 # computer, from `make up` and `make settings`):
 #   config/git.env   git name + email, set on the box so commits are yours
-#   config/auth.env  accounts `auth` uses on the box (see auth/README.md)
+#   config/auth.env  accounts `auth` uses on the box (see box/auth/README.md)
 # Both are gitignored; the .example files next to them document every setting.
 #
 # Defaults come from this computer (git config, gcloud, gh, vercel, claude, aws),

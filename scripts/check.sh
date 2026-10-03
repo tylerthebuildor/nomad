@@ -11,7 +11,7 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 . lib/ui.sh
 
-# Tracked shell scripts: *.sh, plus anything with a sh/bash shebang (bin/, the
+# Tracked shell scripts: *.sh, plus anything with a sh/bash shebang (box/bin/, the
 # cloud-init template).
 shell_files() {
   git ls-files | while IFS= read -r f; do

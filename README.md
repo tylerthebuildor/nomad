@@ -14,7 +14,7 @@ Leave the laptop. Build from anywhere.
 ![Public ports](https://img.shields.io/badge/public_ports-0-ffaf00?style=flat-square)
 ![Claude Code](https://img.shields.io/badge/Claude_Code-ready-ff8700?style=flat-square&logo=anthropic&logoColor=white)
 
-[Phone setup](PHONE.md) · [Design](DESIGN.md) · [Why](PITCH.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+[Phone setup](docs/phone.md)
 
 </div>
 
@@ -52,7 +52,7 @@ mosh nomad     # or: ssh nomad
 ```
 
 `make up` offers the `nomad` shortcut on your computer. On your phone, set up
-Termux once with **[PHONE.md](PHONE.md)** (about 10 minutes), then it is the same
+Termux once with **[docs/phone.md](docs/phone.md)** (about 10 minutes), then it is the same
 `mosh nomad`.
 
 ## 🗂️ Every login: the session menu
@@ -124,6 +124,21 @@ Tailscale SSH there are no SSH keys, so that login is the front door.
 ## 📖 Reference
 
 <details>
+<summary><b>How the repo is laid out</b></summary>
+
+```
+Makefile     every command (make up, down, bootstrap, settings, lock, check)
+scripts/     what make runs on your computer: checks, settings, Terraform, Tailscale
+terraform/   the AWS infrastructure
+box/         everything installed on the box: setup.sh, the t and auth commands,
+             sign-in services (box/auth/), Claude's skill
+lib/ui.sh    the shared look (colors, the nomad header)
+config/      your settings; only the .example files are committed
+```
+
+</details>
+
+<details>
 <summary><b>What <code>make up</code> builds</b></summary>
 
 | | |
@@ -189,7 +204,7 @@ to the box's `~/.ssh/`.
 | 🤖 **claude** | long-lived (or ~1 year with `claude setup-token`) |
 
 `auth --status` prints them all as plain text. Adding another service is one
-file in `auth/`: see [auth/README.md](auth/README.md).
+file in `box/auth/`: see [box/auth/README.md](box/auth/README.md).
 
 </details>
 

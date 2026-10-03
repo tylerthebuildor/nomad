@@ -1,6 +1,6 @@
 # 🔑 auth services
 
-Each file here teaches `auth` (bin/auth) how to sign in to one CLI from a phone.
+Each file here teaches `auth` (box/bin/auth) how to sign in to one CLI from a phone.
 `auth`, its status board, and Claude's `auth` skill discover them automatically,
 so adding a service is adding one file. Files starting with `_` are shared code.
 

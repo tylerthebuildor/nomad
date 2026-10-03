@@ -58,8 +58,8 @@ mosh nomad
 ```
 
 The first time, type **yes** to trust the box. If your tailnet has SSH check mode
-on, a browser opens to approve you; approve it (or turn check mode off, see the
-README's one-time security list).
+on, a browser opens to approve you; approve it (`make up` offers to turn check
+mode off; see the README's security section).
 
 mosh keeps your session alive when you switch between wifi and cellular, and
 echoes your typing instantly. `ssh nomad` also works.

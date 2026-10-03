@@ -3,7 +3,7 @@
 #
 # One command for every service (gcloud, aws, gh, vercel, claude). Each sign-in
 # shows a small card with a short link to open on your phone, so nothing long
-# needs copying. Services live in auth/<name>.sh (see auth/README.md); your
+# needs copying. Services live in box/auth/<name>.sh (see box/auth/README.md); your
 # accounts per service live in ~/.config/nomad/auth.env.
 #
 # Usage:
@@ -22,12 +22,16 @@ SELF="$(readlink -f "$0")"
 node_bin="$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -1)"
 PATH="$HOME/.local/bin${node_bin:+:$node_bin}:/usr/local/bin:$PATH"
 
-for SHARE in "${NOMAD_SHARE:-}" "$HOME/.local/share/nomad" "$(dirname "$SELF")/.."; do
-  [ -n "$SHARE" ] && [ -f "$SHARE/lib/ui.sh" ] && [ -d "$SHARE/auth" ] && break
+# Installed: ~/.local/share/nomad/{lib,auth}. From a checkout: lib/ and box/auth.
+LIB="" AUTH_DIR=""
+for share in "${NOMAD_SHARE:-}" "$HOME/.local/share/nomad"; do
+  [ -n "$share" ] && [ -f "$share/lib/ui.sh" ] && [ -d "$share/auth" ] && { LIB="$share/lib" AUTH_DIR="$share/auth"; break; }
 done
-[ -f "$SHARE/lib/ui.sh" ] || { echo "auth: cannot find lib/ui.sh and auth/ (re-run make bootstrap)" >&2; exit 1; }
-AUTH_DIR="$SHARE/auth"
-. "$SHARE/lib/ui.sh"
+if [ -z "$LIB" ] && [ -f "$(dirname "$SELF")/../../lib/ui.sh" ]; then
+  LIB="$(dirname "$SELF")/../../lib" AUTH_DIR="$(dirname "$SELF")/../auth"
+fi
+[ -n "$LIB" ] || { echo "auth: cannot find lib/ui.sh and auth/ (re-run make bootstrap)" >&2; exit 1; }
+. "$LIB/ui.sh"
 . "$AUTH_DIR/_flows.sh"
 
 # Settings: the config file, but AUTH_* variables already in the environment win,

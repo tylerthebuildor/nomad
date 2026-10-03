@@ -44,7 +44,7 @@ else
 fi
 
 ssh-keygen -R "$PROJECT" >/dev/null 2>&1
-bash "$ROOT/bootstrap/ssh-alias.sh" remove "$PROJECT"
-bash "$ROOT/bootstrap/tailscale.sh" remove "$PROJECT"
+bash "$ROOT/scripts/ssh-alias.sh" remove "$PROJECT"
+bash "$ROOT/scripts/tailscale.sh" remove "$PROJECT"
 printf '\n  %sKept: the Terraform state bucket (tiny, and make up reuses it).%s\n\n' "$FAINT" "$R"
 rm -f "$LOG"
