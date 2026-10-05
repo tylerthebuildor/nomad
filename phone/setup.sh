@@ -6,8 +6,9 @@
 #   curl -fsSL https://raw.githubusercontent.com/tylerthebuildor/nomad/main/phone/setup.sh | bash -s nomad
 #
 # Before this: install the Tailscale app (Play Store) and sign in with the same
-# account as your computer, and install Termux from F-Droid (f-droid.org; the
-# Play Store's Termux is an old build).
+# account as your computer, and install Termux from F-Droid's site
+# (f-droid.org/packages/com.termux, "Download APK"; the Play Store's Termux is an
+# old build).
 #
 # What it does, step by step (read it, run it, or do it by hand):
 #   1. Installs ssh and mosh in Termux (mosh keeps your session through wifi /
@@ -19,9 +20,9 @@
 #      (Esc, Ctrl, Tab, arrows, / - |) above the keyboard, and tap-to-open for
 #      links (so the sign-in links `auth` shows open in your browser).
 #   4. Checks it can reach the box.
-#   5. If you say yes: Claude's replies read aloud on this phone (yap). Needs the
-#      Termux:API app from F-Droid; without it this step just says so, and
-#      nothing else changes.
+#   5. If you say yes: Claude's replies read aloud on this phone (yap). That
+#      needs the Termux:API app; if it is missing, its download page opens for
+#      you and setup waits while you install it (or type skip).
 #   6. If you say yes: every new Termux tab opens your box (ctrl-c or exit for a
 #      plain Termux shell).
 #
@@ -149,16 +150,29 @@ fi
 # Termux can only reach through the Termux:API app. Its line in ~/.bashrc comes
 # before the auto-connect below, since mosh keeps the tab busy.
 drop_block "$HOME/.bashrc"
-if ask "Hear Claude's replies read aloud on this phone? (needs the Termux:API app)"; then
+if ask "Hear Claude's replies read aloud on this phone?"; then
   printf '  %s◦ Setting up yap…%s' "$FAINT" "$R"
   { command -v termux-tts-speak >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || pkg install -y termux-api jq; } >>"$LOG" 2>&1 </dev/null
   curl -fsSL "https://raw.githubusercontent.com/tylerthebuildor/nomad/main/box/bin/yap" -o "$PREFIX/bin/yap" >>"$LOG" 2>&1 &&
     chmod +x "$PREFIX/bin/yap"
   printf '\r\033[K'
+  # Termux:API is a separate app (it is how Termux reaches Android's voice).
+  # Without it, termux-api commands wait forever, hence the timeout.
+  api_ok() { timeout 10 termux-tts-engines >/dev/null 2>&1; }
+  if command -v termux-tts-speak >/dev/null 2>&1 && ! api_ok; then
+    printf '  %s◆ One more app: Termux:API%s %s(free, from F-Droid like Termux)%s\n' "$ACC$B" "$R" "$FAINT" "$R"
+    printf '    Opening its page: tap %sDownload APK%s, install it, then come back here.\n' "$B" "$R"
+    termux-open-url "https://f-droid.org/packages/com.termux.api/" >/dev/null 2>&1
+    until api_ok; do
+      printf '  %s›%s Press enter once it is installed %s(or type skip)%s ' "$ACC" "$R" "$FAINT" "$R"
+      read -r a </dev/tty || a=skip
+      [ "$a" = skip ] && break
+    done
+  fi
   if ! command -v yap >/dev/null 2>&1 || ! command -v termux-tts-speak >/dev/null 2>&1; then
     warn "Voice" "could not install yap; details in $LOG"
-  elif ! timeout 10 termux-tts-engines >/dev/null 2>&1; then
-    warn "Voice" "install the Termux:API app (F-Droid), then run this again"
+  elif ! api_ok; then
+    warn "Voice" "skipped: needs the Termux:API app; run this again any time"
   else
     printf '%s\ncommand -v yap >/dev/null 2>&1 && (nohup yap listen %s >/dev/null 2>&1 &)\n\n' "$MARK" "$BOX" >>"$HOME/.bashrc"
     ok "Voice" "replies read aloud · ask Claude to turn yap off"

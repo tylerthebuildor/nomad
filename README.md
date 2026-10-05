@@ -51,10 +51,10 @@ From your computer: `mosh nomad` (or `ssh nomad`).
 From your Android phone, once:
 
 1. Install **Tailscale** from the Play Store and sign in with the same account.
-2. Install **Termux** from [F-Droid](https://f-droid.org) (the Play Store's
-   Termux is an old build). F-Droid warns it is built for an older Android:
-   that is expected for the real Termux.
-3. Open Termux and paste:
+2. Install **Termux**: open [f-droid.org/packages/com.termux](https://f-droid.org/packages/com.termux/)
+   on your phone and tap **Download APK** (not the Play Store's, an old build).
+   Android warns it was built for an older Android; that is normal for Termux.
+3. Open Termux, then copy and paste:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/tylerthebuildor/nomad/main/phone/setup.sh | bash -s nomad
@@ -62,7 +62,8 @@ curl -fsSL https://raw.githubusercontent.com/tylerthebuildor/nomad/main/phone/se
 
 It installs mosh, adds the `nomad` shortcut and an extra-keys row (Esc, Ctrl,
 arrows), makes links tappable (so `auth`'s sign-in links open in your browser),
-and, if you say yes, makes every new Termux tab open your box. Every
+and asks two things: whether to read Claude's replies aloud, and whether every
+new Termux tab should open your box. Every
 step is commented in [phone/setup.sh](phone/setup.sh) if you would rather read it
 first or do it by hand; add `--remove` to the end to undo it.
 
@@ -92,8 +93,9 @@ each Termux tab can work on something different.
 Say yes to **voice** in the phone setup and Claude's replies are read aloud on
 your phone, through Android's voice on the media volume: handy while driving or
 cooking. Markdown is flattened, and code blocks and links are named rather than
-read out. It needs the free **Termux:API** app from F-Droid; without it, the
-setup says so and everything else works as usual.
+read out. Voice needs one more free app, **Termux:API**; if you do not have it,
+the setup opens its download page and waits while you install it (or you skip
+it, and everything else works as usual).
 
 Ask Claude "turn yap off" (or on), or run `yap off`, `yap on`, `yap stop`
 (cut off the current reply) and `yap status` on the box. Your phone listens to
