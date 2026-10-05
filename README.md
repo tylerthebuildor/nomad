@@ -63,9 +63,9 @@ curl -fsSL https://raw.githubusercontent.com/tylerthebuildor/nomad/main/phone/se
 It installs mosh, adds the `nomad` shortcut and an extra-keys row (Esc, Ctrl,
 arrows), makes links tappable (so `auth`'s sign-in links open in your browser),
 and asks two things: whether to read Claude's replies aloud, and whether every
-new Termux tab should open your box. Every
-step is commented in [phone/setup.sh](phone/setup.sh) if you would rather read it
-first or do it by hand; add `--remove` to the end to undo it.
+new Termux tab should open your box. Every step is commented in
+[phone/setup.sh](phone/setup.sh) if you would rather read it first or do it by
+hand; add `--remove` to the end to undo it.
 
 **iPhone:** in Blink Shell or Termius, add host `nomad`, user `ubuntu`, and
 connect with mosh. **A second box:** use its name instead of `nomad`.
