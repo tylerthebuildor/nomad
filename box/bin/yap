@@ -1,0 +1,288 @@
+#!/usr/bin/env bash
+# yap , hear Claude's replies on your phone.
+#
+# The box has no speaker, so yap splits in two:
+#   on the box     a Claude Code Stop hook turns each finished reply into a short,
+#                  speakable message (markdown flattened, code blocks and links
+#                  named rather than read) and adds it to a feed.
+#   on the phone   `yap listen` keeps a connection to the box open over your
+#                  tailnet, reads the feed, and speaks each reply with Android's
+#                  voice (Termux:API), on the media volume.
+#
+# The feed carries typed messages, one JSON object per line. The phone only acts
+# on the types it knows and never runs anything it receives:
+#   speak {text}   read it aloud          stop      cut off what it is saying
+#   on / off       speaking on or paused  ping      keep-alive, nothing visible
+#
+# On the box:   yap on | off | toggle | status | stop | test | log
+# On the phone: yap listen [box] [--awake] | quit | stop | status
+#               (phone/setup.sh installs this and starts the listener for you)
+#
+# Never breaks anything: the hook always exits 0 and never blocks Claude; with
+# yap off or no phone listening, replies are just not spoken. Without Termux:API
+# the listener says so once and exits, rather than retrying.
+#
+# Settings (optional), shell syntax, in ~/.config/nomad/yap.env:
+#   MAX_CHARS=1400   longer replies are cut at a sentence boundary
+#   SPEAK_CODE=0     1 = read code blocks aloud instead of saying "code block"
+#   RATE=1.0         phone speech rate (0.5 slower .. 2.0 faster)
+set -uo pipefail
+
+YAP_HOME="${YAP_HOME:-$HOME/.local/state/yap}"
+FLAG="$YAP_HOME/on" FEED="$YAP_HOME/feed" LOG="$YAP_HOME/yap.log" SEEN="$YAP_HOME/seen"
+QUEUE="$YAP_HOME/queue" PIDFILE="$YAP_HOME/listen.pid" SPEAKING="$YAP_HOME/speaking.pid"
+
+MAX_CHARS=1400 SPEAK_CODE=0 RATE=1.0
+FRESH_WINDOW=25 # a reply older than this many seconds is never spoken
+FLUSH_TRIES=30  # x 0.2s: how long the hook waits for the transcript to catch up
+# shellcheck source=/dev/null
+[ -f "$HOME/.config/nomad/yap.env" ] && . "$HOME/.config/nomad/yap.env"
+
+mkdir -p "$YAP_HOME" "$SEEN" 2>/dev/null
+on_phone() { [ -n "${TERMUX_VERSION:-}" ] || [ -d /data/data/com.termux ]; }
+log() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG" 2>/dev/null
+        [ "$(wc -l <"$LOG" 2>/dev/null || echo 0)" -gt 2000 ] && tail -n 500 "$LOG" >"$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"; }
+
+# ===== the box ====================================================================
+
+# Add a message to the feed. Keep the feed small: start a new one past 512 KB
+# (listeners follow the file by name, so they pick the new one up).
+emit() {
+  [ -f "$FEED" ] && [ "$(wc -c <"$FEED")" -gt 524288 ] && mv -f "$FEED" "$FEED.old"
+  printf '%s\n' "$1" >>"$FEED"
+}
+say_msg() { jq -cn --arg t "$1" '{type: "speak", text: $t}'; }
+
+# Markdown -> something worth hearing (from github.com/tylerthebuildor/yap).
+clean_text() {
+  YAP_SPEAK_CODE="$SPEAK_CODE" perl -0777 -CSD -pe '
+    if (($ENV{YAP_SPEAK_CODE} // "0") ne "1") {
+      s/^[ \t]*```[^\n]*\n.*?^[ \t]*```[ \t]*$/\n code block. \n/gms;
+      s/^[ \t]*~~~[^\n]*\n.*?^[ \t]*~~~[ \t]*$/\n code block. \n/gms;
+      s/^[ \t]*```[^\n]*\n.*\z/\n code block. \n/ms;   # unterminated fence
+    }
+    s/^[ \t]*\|?[ \t]*:?-{3,}[-\s|:]*$//gm;            # table rules
+    s/!?\[([^\]]*)\]\([^)]*\)/$1/g;                    # [text](url) -> text
+    s{<(https?://[^>]*)>}{ link }g;
+    s{\bhttps?://\S+}{ link }g;
+    s/`([^`\n]*)`/$1/g;                                # inline code
+    s/^[ \t]{0,3}#{1,6}[ \t]+//gm;                     # headings
+    s/^[ \t]*[-*+][ \t]+/ /gm;                         # bullets
+    s/^[ \t]*>[ \t]?//gm;                              # blockquotes
+    s/\*\*([^*\n]+)\*\*/$1/g;
+    s/(?<![\w*])\*([^*\n]+)\*(?![\w*])/$1/g;
+    s/(?<![\w_])__([^_\n]+)__(?![\w_])/$1/g;
+    s/~~([^~\n]+)~~/$1/g;                             # strikethrough
+    s/\|/ , /g;                                        # table cells
+    s/^\s*,\s*//gm; s/\s*,\s*$//gm;                     # tidy table edges
+    s/(?:\s*,\s*){2,}/, /g;
+    s/[-=_~]{3,}/ /g;                                  # rules and separators
+    s/[\x{1F000}-\x{1FAFF}\x{2190}-\x{21FF}\x{2300}-\x{27BF}\x{2B00}-\x{2BFF}\x{FE0F}\x{2022}\x{200D}]//g;
+    s/[ \t]+/ /g;
+    s/[ \t]*\n[ \t]*/\n/g;
+    s/\n{3,}/\n\n/g;
+    s/\A\s+|\s+\z//g;
+  ' 2>/dev/null
+}
+
+truncate_text() {
+  perl -0777 -CSD -spe '
+    if (length($_) > $max) {
+      $_ = substr($_, 0, $max);
+      $_ =~ s/(.*[.!?])[^.!?]*\z/$1/s;
+      $_ .= " ... the rest is on screen.";
+    }
+  ' -- -max="$MAX_CHARS" 2>/dev/null
+}
+
+# The last assistant reply with real text in a transcript.
+# Prints: line 1 uuid, line 2 timestamp, the rest the text.
+extract_last() {
+  local f="$1" n="$2"
+  { if [ "$n" -gt 0 ]; then tail -n "$n" "$f"; else cat "$f"; fi; } 2>/dev/null | jq -Rrn '
+    [ inputs | fromjson? // empty
+      | select(.type == "assistant")
+      | select((.isSidechain // false) != true and (.isMeta // false) != true)
+      | select([ .message.content[]? | select(.type == "text") | select(.text | test("\\S")) ] | length > 0) ]
+    | last
+    | if . == null then empty
+      else (.uuid // "no-uuid"), (.timestamp // ""),
+           ([ .message.content[]? | select(.type == "text") | .text ] | join("\n\n")) end' 2>/dev/null
+}
+
+epoch_of() { # ISO 8601 -> seconds (GNU or BSD date)
+  local ts="${1%%.*}"; ts="${ts%Z}"
+  [ -n "$ts" ] || { echo 0; return; }
+  date -u -d "$ts" +%s 2>/dev/null || TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%S" "$ts" +%s 2>/dev/null || echo 0
+}
+mtime_of() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0; }
+
+# The Stop hook: never repeats a reply, never speaks a stale one, always exits 0.
+hook() {
+  [ -f "$FLAG" ] || exit 0
+  command -v jq >/dev/null 2>&1 || { log "no jq, cannot read the transcript"; exit 0; }
+  local input tp sid last started out="" uuid="" ts="" i=0 text
+  input="$(cat)"
+  tp="$(jq -r '.transcript_path // empty' <<<"$input" 2>/dev/null)"
+  sid="$(jq -r '.session_id // "default"' <<<"$input" 2>/dev/null)"
+  [ -n "$tp" ] && [ -f "$tp" ] || { log "no transcript at '$tp'"; exit 0; }
+  last="$(cat "$SEEN/$sid" 2>/dev/null)"
+  started="$(date +%s)"
+
+  # The hook fires before Claude Code finishes writing the reply: wait for it.
+  while [ "$i" -lt "$FLUSH_TRIES" ]; do
+    out="$(extract_last "$tp" 250)"; [ -n "$out" ] || out="$(extract_last "$tp" 0)"
+    uuid="$(sed -n 1p <<<"$out")"; ts="$(sed -n 2p <<<"$out")"
+    if [ -n "$uuid" ] && [ "$uuid" != "$last" ] && [ $((started - $(epoch_of "$ts"))) -le "$FRESH_WINDOW" ]; then break; fi
+    [ "$i" -gt 4 ] && [ "$(mtime_of "$tp")" -lt "$started" ] && break # nothing new is coming
+    sleep 0.2; i=$((i + 1))
+  done
+
+  [ -n "$uuid" ] && [ "$uuid" != "$last" ] || { log "${sid:0:8} nothing new"; exit 0; }
+  printf '%s' "$uuid" >"$SEEN/$sid"
+  if [ $((started - $(epoch_of "$ts"))) -gt "$FRESH_WINDOW" ]; then log "${sid:0:8} skipped a stale reply"; exit 0; fi
+  text="$(tail -n +3 <<<"$out" | clean_text | truncate_text)"
+  [ -n "$text" ] || exit 0
+  emit "$(say_msg "$text")"
+  log "${sid:0:8} sent ${#text} chars"
+  exit 0
+}
+
+# What `yap listen` reads, over ssh: the current state, then new messages as they
+# come, with a ping every 25 seconds so a dead connection is noticed quickly.
+feed() {
+  touch "$FEED"
+  if [ -f "$FLAG" ]; then echo '{"type":"on"}'; else echo '{"type":"off"}'; fi
+  tail -n 0 -F "$FEED" 2>/dev/null &
+  local tailpid=$!
+  while sleep 25; do
+    echo '{"type":"ping"}' 2>/dev/null || break
+    kill -0 "$tailpid" 2>/dev/null || break
+  done
+  kill "$tailpid" 2>/dev/null
+}
+
+# Claude Code reads hooks from ~/.claude/settings.json: add ours (or take it
+# out), keeping everything else as it is.
+hook_entry() { jq '.hooks.Stop = ([ (.hooks.Stop // [])[]
+  | .hooks = [ .hooks[]? | select(((.command // "") | test("(^|/)yap\"? hook")) | not) ] ]
+  | map(select((.hooks | length) > 0)))'; }
+install_hook() {
+  local s="$HOME/.claude/settings.json" tmp
+  mkdir -p "$HOME/.claude"; [ -f "$s" ] || echo '{}' >"$s"
+  tmp="$(mktemp)"
+  hook_entry <"$s" | jq '.hooks.Stop += [{hooks: [{type: "command", command: "\"$HOME/.local/bin/yap\" hook", async: true, timeout: 30}]}]' >"$tmp" &&
+    jq -e '.hooks.Stop' "$tmp" >/dev/null && { cmp -s "$tmp" "$s" || cp "$s" "$s.bak-yap"; mv "$tmp" "$s"; } || { rm -f "$tmp"; return 1; }
+  [ -e "$YAP_HOME/.installed" ] || { touch "$FLAG" "$YAP_HOME/.installed"; } # on by default, once
+}
+uninstall_hook() {
+  local s="$HOME/.claude/settings.json" tmp
+  [ -f "$s" ] || return 0
+  tmp="$(mktemp)"
+  hook_entry <"$s" | jq 'if (.hooks.Stop | length) == 0 then del(.hooks.Stop) else . end
+    | if (.hooks | length) == 0 then del(.hooks) else . end' >"$tmp" && cp "$s" "$s.bak-yap" && mv "$tmp" "$s"
+}
+
+listeners() { local n; n="$(pgrep -fc 'yap" feed|yap feed' 2>/dev/null)"; echo "${n:-0}"; }
+
+box_cmd() {
+  case "$1" in
+    on)     touch "$FLAG"; emit '{"type":"on"}'; echo "yap: on" ;;
+    off)    rm -f "$FLAG"; emit '{"type":"stop"}'; emit '{"type":"off"}'; echo "yap: off" ;;
+    toggle) if [ -f "$FLAG" ]; then box_cmd off; else box_cmd on; fi ;;
+    stop)   emit '{"type":"stop"}'; echo "yap: stopped the current reply" ;;
+    test)   if [ -f "$FLAG" ]; then emit "$(say_msg "Yap is on. You will hear Claude's replies here.")"
+            echo "yap: sent a test line to $(listeners) listening phone(s)"; else echo "yap: off (yap on first)"; fi ;;
+    status) printf 'yap: %s · %s phone(s) listening\n' "$([ -f "$FLAG" ] && echo on || echo off)" "$(listeners)" ;;
+    log)    tail -n "${2:-20}" "$LOG" 2>/dev/null ;;
+    *)      sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; return 2 ;;
+  esac
+}
+
+# ===== the phone ==================================================================
+
+# Speak queued replies one at a time, oldest first. `stop` empties the queue and
+# cuts off the current one.
+speaker() {
+  local f
+  while true; do
+    f="$(ls "$QUEUE" 2>/dev/null | head -1)"
+    if [ -z "$f" ]; then sleep 0.3; continue; fi
+    if [ ! -f "$YAP_HOME/muted" ]; then
+      timeout 300 termux-tts-speak -s MUSIC -r "$RATE" <"$QUEUE/$f" >/dev/null 2>&1 &
+      echo $! >"$SPEAKING"; wait $! 2>/dev/null; rm -f "$SPEAKING"
+    fi
+    rm -f "$QUEUE/$f"
+  done
+}
+
+handle() { # one feed line
+  local type text
+  type="$(jq -r '.type // empty' <<<"$1" 2>/dev/null)"
+  case "$type" in
+    speak) text="$(jq -r '.text // empty' <<<"$1" 2>/dev/null)"
+           [ -n "$text" ] && printf '%s' "$text" >"$QUEUE/$(date +%s%N)" ;;
+    stop)  rm -f "$QUEUE"/* 2>/dev/null; kill "$(cat "$SPEAKING" 2>/dev/null)" 2>/dev/null ;;
+    on)    rm -f "$YAP_HOME/muted" ;;
+    off)   touch "$YAP_HOME/muted"; rm -f "$QUEUE"/* 2>/dev/null ;;
+    *)     ;; # ping, or a type from a newer box: nothing to do
+  esac
+}
+
+listen() {
+  local box="${1:-nomad}" awake="" backoff=2 t0 rc
+  [ "${2:-}" = "--awake" ] && awake=1
+  on_phone || { echo "yap listen runs on your phone (Termux)."; return 0; }
+  for c in termux-tts-speak jq ssh; do
+    command -v "$c" >/dev/null 2>&1 || { echo "yap: missing $c (re-run the phone setup)"; return 0; }
+  done
+  # Without the Termux:API app, termux-api commands wait forever: check first.
+  timeout 10 termux-tts-engines >/dev/null 2>&1 || {
+    echo "yap: the Termux:API app is not installed (F-Droid), so voice stays off."; log "no Termux:API app"; return 0; }
+  # One listener at a time, however many Termux tabs start it.
+  if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then return 0; fi
+  echo $$ >"$PIDFILE"
+  mkdir -p "$QUEUE"; rm -f "$QUEUE"/* 2>/dev/null
+  speaker & local spk=$! conn="" rcfile="$YAP_HOME/ssh.rc" sshpid="$YAP_HOME/ssh.pid"
+  [ -n "$awake" ] && termux-wake-lock 2>/dev/null
+  # The connection runs in the background and we `wait` on it, so `yap quit`
+  # (a TERM) is handled right away instead of after the connection ends.
+  trap 'kill "$(cat "$sshpid" 2>/dev/null)" "$spk" ${conn:+"$conn"} "$(cat "$SPEAKING" 2>/dev/null)" 2>/dev/null
+        [ -n "$awake" ] && termux-wake-unlock 2>/dev/null; rm -f "$PIDFILE" "$sshpid"; exit 0' INT TERM HUP
+  log "listening to $box"
+  while true; do
+    t0=$(date +%s); rm -f "$rcfile"
+    { ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=20 -o ServerAliveCountMax=3 \
+        "$box" '.local/bin/yap feed' </dev/null 2>>"$LOG" &
+      echo $! >"$sshpid"; wait $!; echo $? >"$rcfile"; } | while IFS= read -r line; do handle "$line"; done &
+    conn=$!; wait "$conn"; rc="$(cat "$rcfile" 2>/dev/null || echo 1)"
+    # Reconnect quickly after a good connection, back off when it keeps failing,
+    # and slow right down if the box has no yap yet.
+    if [ $(($(date +%s) - t0)) -gt 60 ]; then backoff=2; else backoff=$((backoff < 120 ? backoff * 2 : 300)); fi
+    [ "$rc" = 127 ] && { log "$box has no yap (make bootstrap)"; backoff=600; }
+    log "connection to $box ended ($rc); retrying in ${backoff}s"
+    sleep "$backoff" & wait $!
+  done
+}
+
+phone_cmd() {
+  case "$1" in
+    listen) shift; listen "$@" ;;
+    quit)   [ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null; rm -f "$PIDFILE"; echo "yap: stopped listening" ;;
+    stop)   handle '{"type":"stop"}'; echo "yap: stopped" ;;
+    status) if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+              echo "yap: listening$([ -f "$YAP_HOME/muted" ] && echo ' (paused: yap off on the box)')"
+            else echo "yap: not listening (yap listen nomad)"; fi ;;
+    *)      sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; return 2 ;;
+  esac
+}
+
+# ==================================================================================
+
+case "${1:-status}" in
+  hook) hook ;;
+  feed) feed ;;
+  install-hook) install_hook ;;
+  uninstall-hook) uninstall_hook ;;
+  *) if on_phone; then phone_cmd "${1:-status}" "${@:2}"; else box_cmd "${1:-status}" "${@:2}"; fi ;;
+esac

@@ -19,7 +19,10 @@
 #      (Esc, Ctrl, Tab, arrows, / - |) above the keyboard, and tap-to-open for
 #      links (so the sign-in links `auth` shows open in your browser).
 #   4. Checks it can reach the box.
-#   5. If you say yes: every new Termux tab opens your box (ctrl-c or exit for a
+#   5. If you say yes: Claude's replies read aloud on this phone (yap). Needs the
+#      Termux:API app from F-Droid; without it this step just says so, and
+#      nothing else changes.
+#   6. If you say yes: every new Termux tab opens your box (ctrl-c or exit for a
 #      plain Termux shell).
 #
 # Everything it adds is marked "# nomad", so re-running only updates its own
@@ -76,9 +79,13 @@ if [ "$MODE" = "--remove" ]; then
            "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
     drop_block "$f"
   done
-  rm -f "$LOG"; rmdir "$(dirname "$LOG")" 2>/dev/null
+  command -v yap >/dev/null 2>&1 && yap quit >/dev/null 2>&1
+  rm -f "${PREFIX:-/nonexistent}/bin/yap"; rm -rf "$HOME/.local/state/yap"
+  rm -f "$LOG"
+  # folders this script may have created, only if nothing else is in them
+  rmdir "$HOME/.cache" "$HOME/.local/state" "$HOME/.local" "$HOME/.termux" "$HOME/.ssh" 2>/dev/null
   command -v termux-reload-settings >/dev/null 2>&1 && termux-reload-settings
-  ok "Removed" "Nomad's lines from ssh config, extra keys and shell startup"
+  ok "Removed" "Nomad's lines from ssh config, Termux settings, shell startup, yap"
   printf '\n'; exit 0
 fi
 
@@ -137,21 +144,46 @@ else
   warn "Reach $BOX" "not yet: is the Tailscale app on, same account as your computer?"
 fi
 
-# --- 5. Open Termux = open your box --------------------------------------------------------------
+# --- 5. Voice: Claude's replies read aloud (yap) -------------------------------------------
+# yap listens to the box over your tailnet and speaks with Android's voice, which
+# Termux can only reach through the Termux:API app. Its line in ~/.bashrc comes
+# before the auto-connect below, since mosh keeps the tab busy.
 drop_block "$HOME/.bashrc"
+if ask "Hear Claude's replies read aloud on this phone? (needs the Termux:API app)"; then
+  printf '  %s◦ Setting up yap…%s' "$FAINT" "$R"
+  { command -v termux-tts-speak >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || pkg install -y termux-api jq; } >>"$LOG" 2>&1 </dev/null
+  curl -fsSL "https://raw.githubusercontent.com/tylerthebuildor/nomad/main/box/bin/yap" -o "$PREFIX/bin/yap" >>"$LOG" 2>&1 &&
+    chmod +x "$PREFIX/bin/yap"
+  printf '\r\033[K'
+  if ! command -v yap >/dev/null 2>&1 || ! command -v termux-tts-speak >/dev/null 2>&1; then
+    warn "Voice" "could not install yap; details in $LOG"
+  elif ! timeout 10 termux-tts-engines >/dev/null 2>&1; then
+    warn "Voice" "install the Termux:API app (F-Droid), then run this again"
+  else
+    printf '%s\ncommand -v yap >/dev/null 2>&1 && (nohup yap listen %s >/dev/null 2>&1 &)\n\n' "$MARK" "$BOX" >>"$HOME/.bashrc"
+    ok "Voice" "replies read aloud · ask Claude to turn yap off"
+  fi
+else
+  skip "Voice" "off · set it up any time by running this again"
+fi
+
+# --- 6. Open Termux = open your box --------------------------------------------------------------
 if ask "Open your box every time you open Termux? (ctrl-c or exit for a Termux shell)"; then
   printf '%s\nif [ -z "${NOMAD_CONNECTING:-}" ] && [ -t 0 ]; then\n  export NOMAD_CONNECTING=1\n  mosh %s || echo "Could not reach %s. Is Tailscale on? Retry: mosh %s"\nfi\n\n' \
     "$MARK" "$BOX" "$BOX" "$BOX" >>"$HOME/.bashrc"
-  # If Termux starts bash as a login shell, bash reads the first of
-  # ~/.bash_profile, ~/.bash_login, ~/.profile instead of ~/.bashrc; have that
-  # one load ~/.bashrc too (NOMAD_CONNECTING stops a double connect).
-  login="$HOME/.bash_profile"
-  for f in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do [ -f "$f" ] && { login="$f"; break; }; done
-  drop_block "$login"
-  grep -q '\.bashrc' "$login" 2>/dev/null || printf '%s\n[ -f ~/.bashrc ] && . ~/.bashrc\n\n' "$MARK" >>"$login"
   ok "Auto-connect" "new Termux tabs open $BOX"
 else
   skip "Auto-connect" "off · connect with: mosh $BOX"
+fi
+
+# If Termux starts bash as a login shell, bash reads the first of ~/.bash_profile,
+# ~/.bash_login, ~/.profile instead of ~/.bashrc; have that one load ~/.bashrc
+# too, when steps 5 or 6 added to it (NOMAD_CONNECTING stops a double connect).
+login="$HOME/.bash_profile"
+for f in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do [ -f "$f" ] && { login="$f"; break; }; done
+drop_block "$login"
+if grep -qxF "$MARK" "$HOME/.bashrc" 2>/dev/null && ! grep -q '\.bashrc' "$login" 2>/dev/null; then
+  printf '%s\n[ -f ~/.bashrc ] && . ~/.bashrc\n\n' "$MARK" >>"$login"
 fi
 
 printf '\n  📱 %sReady.%s Open a new Termux tab %s(swipe from the left edge → New session)%s\n' "$B" "$R" "$FAINT" "$R"

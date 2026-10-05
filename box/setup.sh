@@ -182,7 +182,7 @@ nomad_tools() { # box/bin -> ~/.local/bin; lib/, box/auth -> ~/.local/share/noma
     cp -R "$NOMAD_REPO/lib" "$share/lib" && cp -R "$NOMAD_REPO/box/auth" "$share/auth" || return
   rm -rf "$HOME/.claude/skills/gauth" # replaced by the auth skill
   cp -R "$NOMAD_REPO/box/skills"/. "$HOME/.claude/skills/" || return
-  NOTE="t, auth · Claude skill"
+  NOTE="t, auth, yap · Claude skills"
 }
 
 your_settings() { # config/ (asked once by make up) -> ~/.config/nomad
@@ -207,6 +207,11 @@ your_settings() { # config/ (asked once by make up) -> ~/.config/nomad
     return 4
   fi
   NOTE="git as $(git config --global user.name) <$(git config --global user.email)>"
+}
+
+yap_hook() { # Claude's replies to the phone: the Stop hook in ~/.claude/settings.json
+  "$HOME/.local/bin/yap" install-hook || return
+  NOTE="$("$HOME/.local/bin/yap" status | sed 's/^yap: //') · phone: yap listen"
 }
 
 shell_and_tmux() {
@@ -283,6 +288,7 @@ step "Language servers" 'have typescript-language-server'    language_servers
 step "Claude Code"      'have claude'                        claude_code
 step "Nomad tools"      ""                                   nomad_tools
 step "Your settings"    ""                                   your_settings
+step "Yap"              ""                                   yap_hook
 step "Shell + tmux"     ""                                   shell_and_tmux
 
 took=$(( $(date +%s) - START ))

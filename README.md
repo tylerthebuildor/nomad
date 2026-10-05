@@ -25,6 +25,7 @@ Leave the laptop. Build from anywhere.
 - 📱 **Phone-first.** Termux + mosh + tmux, tuned for thumbs and flaky connections.
 - 🗂️ **A session menu on every login.** Each tab picks its own session; new ones start Claude Code.
 - 🔑 **One `auth` command for every sign-in**, with short links you can actually type on a phone.
+- 🗣️ **Claude's replies read aloud on your phone** (`yap`), if you want them.
 - 🧰 **The toolbox:** gcloud, AWS, GitHub, Vercel and Claude Code CLIs, Node, Bun, Deno, Rust, Go, language servers.
 
 ## 🚀 Start
@@ -86,6 +87,19 @@ each Termux tab can work on something different.
 
 `●` is open in a tab, `○` is waiting for you. `t <name>` jumps straight to a session.
 
+## 🗣️ Hear Claude on your phone: `yap`
+
+Say yes to **voice** in the phone setup and Claude's replies are read aloud on
+your phone, through Android's voice on the media volume: handy while driving or
+cooking. Markdown is flattened, and code blocks and links are named rather than
+read out. It needs the free **Termux:API** app from F-Droid; without it, the
+setup says so and everything else works as usual.
+
+Ask Claude "turn yap off" (or on), or run `yap off`, `yap on`, `yap stop`
+(cut off the current reply) and `yap status` on the box. Your phone listens to
+the box over your tailnet and only ever speaks; it never runs anything the box
+sends.
+
 ## 🔑 Signing in: `auth`
 
 Run `auth` on the box (or <kbd>ctrl</kbd> <kbd>b</kbd> then <kbd>A</kbd>) for a
@@ -143,8 +157,8 @@ Tailscale SSH there are no SSH keys, so that login is the front door.
 Makefile     every command (make up, down, bootstrap, settings, lock, check)
 scripts/     what make runs on your computer: checks, settings, Terraform, Tailscale
 terraform/   the AWS infrastructure
-box/         everything installed on the box: setup.sh, the t and auth commands,
-             sign-in services (box/auth/), Claude's skill
+box/         everything installed on the box: setup.sh, the t, auth and yap
+             commands, sign-in services (box/auth/), Claude's skills
 phone/       setup.sh for Termux on your phone
 lib/ui.sh    the shared look (colors, the nomad header)
 config/      your settings; only the .example files are committed
