@@ -60,7 +60,8 @@ curl -fsSL https://raw.githubusercontent.com/tylerthebuildor/nomad/main/phone/se
 ```
 
 It installs mosh, adds the `nomad` shortcut and an extra-keys row (Esc, Ctrl,
-arrows), and, if you say yes, makes every new Termux tab open your box. Every
+arrows), makes links tappable (so `auth`'s sign-in links open in your browser),
+and, if you say yes, makes every new Termux tab open your box. Every
 step is commented in [phone/setup.sh](phone/setup.sh) if you would rather read it
 first or do it by hand; add `--remove` to the end to undo it.
 

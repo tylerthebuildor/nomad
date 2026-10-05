@@ -15,8 +15,9 @@
 #   2. Adds a shortcut to ~/.ssh/config so `mosh nomad` logs in as `ubuntu`, and
 #      trusts the box's key on first connect (the box is only reachable over
 #      your own tailnet).
-#   3. Adds an extra-keys row (Esc, Ctrl, Tab, arrows, / - |) above the keyboard,
-#      unless you already have your own.
+#   3. Termux settings, unless you already set them yourself: an extra-keys row
+#      (Esc, Ctrl, Tab, arrows, / - |) above the keyboard, and tap-to-open for
+#      links (so the sign-in links `auth` shows open in your browser).
 #   4. Checks it can reach the box.
 #   5. If you say yes: every new Termux tab opens your box (ctrl-c or exit for a
 #      plain Termux shell).
@@ -109,15 +110,24 @@ else
   ok "Shortcut" "mosh $BOX · ssh $BOX"
 fi
 
-# --- 3. Extra-keys row ------------------------------------------------------------------------
+# --- 3. Termux settings: extra keys, tap links to open ------------------------------------
 props="$HOME/.termux/termux.properties"
 mkdir -p "$HOME/.termux"; drop_block "$props"; touch "$props"
-if grep -q '^[[:space:]]*extra-keys' "$props"; then
-  skip "Extra keys" "you have your own; left as is"
-else
-  printf '%s\n%s\n\n' "$MARK" "extra-keys = [['ESC','/','-','|','HOME','UP','END','PGUP'],['TAB','CTRL','ALT','LEFT','DOWN','RIGHT','PGDN']]" >>"$props"
+lines="" added=""
+if ! grep -q '^[[:space:]]*extra-keys' "$props"; then
+  lines+="extra-keys = [['ESC','/','-','|','HOME','UP','END','PGUP'],['TAB','CTRL','ALT','LEFT','DOWN','RIGHT','PGDN']]"$'\n'
+  added+="extra keys"
+fi
+if ! grep -q '^[[:space:]]*terminal-onclick-url-open' "$props"; then
+  lines+="terminal-onclick-url-open = true"$'\n'
+  added+="${added:+ · }tap links to open"
+fi
+if [ -n "$lines" ]; then
+  printf '%s\n%s\n' "$MARK" "$lines" >>"$props"
   command -v termux-reload-settings >/dev/null 2>&1 && termux-reload-settings
-  ok "Extra keys" "Esc, Ctrl, Tab, arrows above the keyboard"
+  ok "Termux" "$added"
+else
+  skip "Termux" "your own extra keys and link settings; left as is"
 fi
 
 # --- 4. Can we reach the box? ------------------------------------------------------------------
