@@ -6,9 +6,8 @@
 #   curl -fsSL https://raw.githubusercontent.com/tylerthebuildor/nomad/main/phone/setup.sh | bash -s nomad
 #
 # Before this: install the Tailscale app (Play Store) and sign in with the same
-# account as your computer, and install Termux from F-Droid's site
-# (f-droid.org/packages/com.termux, "Download APK"; the Play Store's Termux is an
-# old build).
+# account as your computer, and install Termux (F-Droid, Google Play or GitHub;
+# F-Droid or GitHub if you want voice, since Termux:API is not on Google Play).
 #
 # What it does, step by step (read it, run it, or do it by hand):
 #   1. Installs ssh and mosh in Termux (mosh keeps your session through wifi /
@@ -21,8 +20,8 @@
 #      links (so the sign-in links `auth` shows open in your browser).
 #   4. Checks it can reach the box.
 #   5. If you say yes: Claude's replies read aloud on this phone (yap). That
-#      needs the Termux:API app; if it is missing, its download page opens for
-#      you and setup waits while you install it (or type skip).
+#      needs the Termux:API app from the same place Termux came from; if it is
+#      missing, the right download page opens and setup waits (or type skip).
 #   6. If you say yes: every new Termux tab opens your box (ctrl-c or exit for a
 #      plain Termux shell).
 #
@@ -150,7 +149,16 @@ fi
 # Termux can only reach through the Termux:API app. Its line in ~/.bashrc comes
 # before the auto-connect below, since mosh keeps the tab busy.
 drop_block "$HOME/.bashrc"
-if ask "Hear Claude's replies read aloud on this phone?"; then
+# Termux:API has to come from the same place as Termux (each is signed by its
+# store), and Google Play has no Termux:API.
+case "${TERMUX_APP__APK_RELEASE:-F-Droid}" in
+  "Google Play Store") api_page="" ;;
+  Github) api_page="https://github.com/termux/termux-api/releases/latest" api_tap="the .apk under Assets" ;;
+  *)      api_page="https://f-droid.org/packages/com.termux.api/" api_tap="Download APK" ;;
+esac
+if [ -z "$api_page" ]; then
+  skip "Voice" "needs Termux from F-Droid (no Termux:API on Google Play)"
+elif ask "Hear Claude's replies read aloud on this phone?"; then
   printf '  %s◦ Setting up yap…%s' "$FAINT" "$R"
   { command -v termux-tts-speak >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || pkg install -y termux-api jq; } >>"$LOG" 2>&1 </dev/null
   curl -fsSL "https://raw.githubusercontent.com/tylerthebuildor/nomad/main/box/bin/yap" -o "$PREFIX/bin/yap" >>"$LOG" 2>&1 &&
@@ -160,9 +168,9 @@ if ask "Hear Claude's replies read aloud on this phone?"; then
   # Without it, termux-api commands wait forever, hence the timeout.
   api_ok() { timeout 10 termux-tts-engines >/dev/null 2>&1; }
   if command -v termux-tts-speak >/dev/null 2>&1 && ! api_ok; then
-    printf '  %s◆ One more app: Termux:API%s %s(free, from F-Droid like Termux)%s\n' "$ACC$B" "$R" "$FAINT" "$R"
-    printf '    Opening its page: tap %sDownload APK%s, install it, then come back here.\n' "$B" "$R"
-    termux-open-url "https://f-droid.org/packages/com.termux.api/" >/dev/null 2>&1
+    printf '  %s◆ One more app: Termux:API%s %s(free, from the same place as Termux)%s\n' "$ACC$B" "$R" "$FAINT" "$R"
+    printf '    Opening its page: tap %s%s%s, install it, then come back here.\n' "$B" "$api_tap" "$R"
+    termux-open-url "$api_page" >/dev/null 2>&1
     until api_ok; do
       printf '  %s›%s Press enter once it is installed %s(or type skip)%s ' "$ACC" "$R" "$FAINT" "$R"
       read -r a </dev/tty || a=skip

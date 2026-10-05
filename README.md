@@ -46,26 +46,31 @@ tailnet (see *How the box joins your tailnet* below). It takes about 6 minutes.
 
 ## 📱 Connect
 
-From your computer: `mosh nomad` (or `ssh nomad`).
+**From your computer:** `mosh nomad` (or `ssh nomad`).
 
-From your Android phone, once:
+**From your Android phone,** once:
 
-1. Install **Tailscale** from the Play Store and sign in with the same account.
-2. Install **Termux**: open [f-droid.org/packages/com.termux](https://f-droid.org/packages/com.termux/)
-   on your phone and tap **Download APK** (not the Play Store's, an old build).
-   Android warns it was built for an older Android; that is normal for Termux.
-3. Open Termux, then copy and paste:
+1. **Install Tailscale** and sign in with the same account as your computer.
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/tylerthebuildor/nomad/main/phone/setup.sh | bash -s nomad
-```
+   [![Tailscale on Google Play](https://img.shields.io/badge/Tailscale-Google_Play-242424?style=for-the-badge&logo=tailscale&logoColor=white)](https://play.google.com/store/apps/details?id=com.tailscale.ipn)
 
-It installs mosh, adds the `nomad` shortcut and an extra-keys row (Esc, Ctrl,
-arrows), makes links tappable (so `auth`'s sign-in links open in your browser),
-and asks two things: whether to read Claude's replies aloud, and whether every
-new Termux tab should open your box. Every step is commented in
-[phone/setup.sh](phone/setup.sh) if you would rather read it first or do it by
-hand; add `--remove` to the end to undo it.
+2. **Install Termux.** Pick F-Droid if you want Claude's replies read aloud
+   (Google Play has no Termux:API); any of them works for everything else.
+
+   [![Termux on F-Droid](https://img.shields.io/badge/Termux-F--Droid-1976D2?style=for-the-badge&logo=fdroid&logoColor=white)](https://f-droid.org/packages/com.termux/)
+   [![Termux on Google Play](https://img.shields.io/badge/Termux-Google_Play-34A853?style=for-the-badge&logo=googleplay&logoColor=white)](https://play.google.com/store/apps/details?id=com.termux)
+   [![Termux on GitHub](https://img.shields.io/badge/Termux-GitHub-24292F?style=for-the-badge&logo=github&logoColor=white)](https://github.com/termux/termux-app/releases/latest)
+
+3. **Open Termux and paste this** (tap the copy button):
+
+   ```sh
+   curl -fsSL https://raw.githubusercontent.com/tylerthebuildor/nomad/main/phone/setup.sh | bash -s nomad
+   ```
+
+That's it. It sets up the rest (mosh, the `nomad` shortcut, an extra-keys row,
+tappable links) and asks two things: read Claude's replies aloud, and open your
+box whenever you open Termux. Every step is commented in
+[phone/setup.sh](phone/setup.sh); add `--remove` to the end to undo it.
 
 **iPhone:** in Blink Shell or Termius, add host `nomad`, user `ubuntu`, and
 connect with mosh. **A second box:** use its name instead of `nomad`.
