@@ -142,6 +142,28 @@ gcloud_cli() { # official apt repo
   NOTE="$(gcloud version 2>/dev/null | head -1 | awk '{print $NF}')"
 }
 
+kube_cli() { # kubectl: the official binary, latest stable, checked against its sha256
+  if ! have kubectl; then
+    local v arch
+    v="$(curl -fsSL https://dl.k8s.io/release/stable.txt)" || return
+    arch="$(dpkg --print-architecture)" # arm64 / amd64
+    curl -fsSL "https://dl.k8s.io/release/$v/bin/linux/$arch/kubectl" -o /tmp/kubectl &&
+      echo "$(curl -fsSL "https://dl.k8s.io/release/$v/bin/linux/$arch/kubectl.sha256")  /tmp/kubectl" | sha256sum -c - &&
+      sudo install -m 755 /tmp/kubectl /usr/local/bin/kubectl && rm -f /tmp/kubectl || return
+  fi
+  NOTE="$(kubectl version --client -o json 2>/dev/null | jq -r '.clientVersion.gitVersion' | sed 's/^v//')"
+}
+
+terraform_cli() { # HashiCorp's apt repo
+  if ! have terraform; then
+    . /etc/os-release
+    curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/hashicorp-archive-keyring.gpg &&
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $VERSION_CODENAME main" | sudo tee /etc/apt/sources.list.d/hashicorp.list >/dev/null &&
+      apt_get update && apt_get install -y terraform || return
+  fi
+  NOTE="$(terraform version -json 2>/dev/null | jq -r '.terraform_version')"
+}
+
 vercel_cli() {
   have vercel || npm install -g vercel || return
   NOTE="$(vercel --version 2>/dev/null | tail -1)"
@@ -244,6 +266,9 @@ set -g status-style 'bg=colour236 fg=colour252'
 set -g status-left '#[bold] #S '
 set -g status-left-length 30
 set -g status-right ' %H:%M '
+# Let programs (Claude Code's /copy, editors) copy to YOUR clipboard: tmux passes
+# their copy request (OSC 52) through mosh to your terminal (Termux, iTerm2, ...).
+set -g set-clipboard on
 bind r source-file ~/.tmux.conf \; display "tmux.conf reloaded"
 # prefix + S: session picker (bin/t) in a popup, to switch sessions
 bind S display-popup -E -B -w 100% -h 100% "$HOME/.local/bin/t"
@@ -252,6 +277,8 @@ bind G display-popup -E -B -w 100% -h 100% "$HOME/.local/bin/auth gcloud"
 # prefix + A: sign-in board for every service (bin/auth)
 bind A display-popup -E -B -w 100% -h 100% "$HOME/.local/bin/auth"
 TMUXCONF
+  # sessions already running pick the new settings up too
+  tmux source-file "$HOME/.tmux.conf" 2>/dev/null
 
   # Session menu on login. Older boxes auto-attached every login to one shared
   # "main" session; drop that.
@@ -283,6 +310,8 @@ step "GitHub CLI"       'have gh'                            github_cli
 step "AWS CLI"          'have aws'                           aws_cli
 step "Google Cloud CLI" 'have gcloud'                        gcloud_cli
 step "Vercel CLI"       'have vercel'                        vercel_cli
+step "kubectl"          'have kubectl'                       kube_cli
+step "Terraform"        'have terraform'                     terraform_cli
 step "Solana + Anchor"  'have solana'                        solana
 step "Language servers" 'have typescript-language-server'    language_servers
 step "Claude Code"      'have claude'                        claude_code

@@ -26,7 +26,7 @@ Leave the laptop. Build from anywhere.
 - 🗂️ **A session menu on every login.** Each tab picks its own session; new ones start Claude Code.
 - 🔑 **One `auth` command for every sign-in**, with short links you can actually type on a phone.
 - 🗣️ **Claude's replies read aloud on your phone** (`yap`), if you want them.
-- 🧰 **The toolbox:** gcloud, AWS, GitHub, Vercel and Claude Code CLIs, Node, Bun, Deno, Rust, Go, language servers.
+- 🧰 **The toolbox:** gcloud, AWS, GitHub, Vercel and Claude Code CLIs, kubectl, Terraform, Node, Bun, Deno, Rust, Go, language servers.
 
 ## 🚀 Start
 
