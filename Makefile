@@ -124,6 +124,7 @@ ssh:
 # box/setup.sh. Idempotent; make up runs it for you.
 bootstrap:
 	@bash scripts/ssh-alias.sh add $(PROJECT)
+	@bash scripts/ssh-alias.sh terminfo $(PROJECT)
 	@ssh $(SSH_OPTS) ubuntu@$(PROJECT) 'rm -rf /tmp/nomad && mkdir -p /tmp/nomad'
 	@scp -q -r $(SSH_OPTS) box lib config ubuntu@$(PROJECT):/tmp/nomad/
 	@ssh $(SSH_OPTS) ubuntu@$(PROJECT) "NOMAD_HOSTNAME=$(PROJECT) NOMAD_CONNECT='$$(bash scripts/ssh-alias.sh connect $(PROJECT))' bash /tmp/nomad/box/setup.sh"

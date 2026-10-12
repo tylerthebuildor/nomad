@@ -8,6 +8,9 @@
 #   ssh-alias.sh remove <box>   remove the entry this script added (make down)
 #   ssh-alias.sh connect <box>  print how to connect: "mosh <box>" if the
 #                               shortcut works, else "mosh ubuntu@<box>"
+#   ssh-alias.sh terminfo <box> copy this terminal's description to the box if
+#                               the box lacks it (Ghostty, kitty, WezTerm...), so
+#                               tmux there gets every feature
 #
 # Entries it adds are marked "# nomad: added by make up", and only those are
 # ever removed. On your phone (Termux), add the same two lines to ~/.ssh/config.
@@ -74,9 +77,19 @@ connect() {
   if [ "$(user_for "$1")" = ubuntu ]; then echo "mosh $1"; else echo "mosh ubuntu@$1"; fi
 }
 
+terminfo() {
+  local box="$1" t="${TERM:-}"
+  [ -n "$t" ] && infocmp -x "$t" >/dev/null 2>&1 || return 0
+  ssh -o BatchMode=yes -o ConnectTimeout=15 -o LogLevel=ERROR "ubuntu@$box" "infocmp '$t'" >/dev/null 2>&1 && return 0
+  if infocmp -x "$t" | ssh -o BatchMode=yes -o LogLevel=ERROR "ubuntu@$box" 'tic -x - 2>/dev/null'; then
+    printf '  %s✓%s %-18s %s%s now known on %s%s\n' "$LIVE" "$R" "Terminal" "$DIM" "$t" "$box" "$R"
+  fi
+}
+
 case "${1:-}" in
   add)     add "${2:?box}" ;;
+  terminfo) terminfo "${2:?box}" ;;
   remove)  remove "${2:?box}" ;;
   connect) connect "${2:?box}" ;;
-  *) echo "usage: ssh-alias.sh add|remove|connect <box>" >&2; exit 2 ;;
+  *) echo "usage: ssh-alias.sh add|remove|connect|terminfo <box>" >&2; exit 2 ;;
 esac

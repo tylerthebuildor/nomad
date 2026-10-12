@@ -16,6 +16,10 @@
 set -uo pipefail
 
 SELF="$(readlink -f "$0")"
+# tmux refuses a terminal type the box has no description of (e.g. a brand-new
+# terminal's own type, like xterm-ghostty). make bootstrap copies yours over;
+# until then, fall back to one every system knows.
+infocmp "${TERM:-dumb}" >/dev/null 2>&1 || export TERM=xterm-256color
 START="${NOMAD_START_DIR:-$HOME/dev}"
 [ -d "$START" ] || START="$HOME"
 NEW_CMD="${NOMAD_NEW_CMD-claw}"
