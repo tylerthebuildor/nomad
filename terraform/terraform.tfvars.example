@@ -2,7 +2,7 @@
 # Do NOT commit real values.
 
 region         = "us-east-1"
-instance_type  = "t4g.large"
+instance_type  = "t4g.xlarge"
 root_volume_gb = 100
 
 # Prefer passing the auth key via env so it never hits disk:

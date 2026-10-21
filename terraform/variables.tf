@@ -13,7 +13,7 @@ variable "name" {
 variable "instance_type" {
   description = "EC2 instance type. ARM/Graviton. Start small, scale later."
   type        = string
-  default     = "t4g.large"
+  default     = "t4g.xlarge"
 }
 
 variable "root_volume_gb" {

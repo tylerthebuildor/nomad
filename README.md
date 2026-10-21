@@ -186,7 +186,7 @@ config/      your settings; only the .example files are committed
 | | |
 |---|---|
 | 🛡️ **Network** | Its own VPC with **zero public inbound**: the security group has no ingress rules; outbound is open for installs and Tailscale. |
-| 💻 **Instance** | **t4g.large (ARM/Graviton), Ubuntu 24.04**, 100 GB **encrypted** gp3 disk. |
+| 💻 **Instance** | **t4g.xlarge (ARM/Graviton), Ubuntu 24.04**, 100 GB **encrypted** gp3 disk. |
 | 🔗 **Access** | First boot installs Tailscale and mosh, joins **your** tailnet with Tailscale SSH as `nomad`, and turns off the regular SSH server. |
 | 📦 **Then** | Over the tailnet: the CLIs and languages, the session menu, `auth`, Claude Code and its nomad skills, your git identity and settings, tmux tuned for phones. |
 
@@ -277,7 +277,7 @@ you, ✗ failed with its last lines. The full install log is on the box at
   biggest process (often a Claude session) before the box locks up. Your
   connection (Tailscale, mosh, tmux) is the last thing it picks. A killed Claude session is
   not lost: `claude --resume` picks it back up. Running many sessions at once on
-  the 8 GB default? That is the time for a bigger box.
+  the 16 GB default? That is the time for a bigger box.
 - **Locked out**: Tailscale is the only door, by design. A box with nothing on it
   yet: `make down && make up`. Otherwise stop the instance and attach its disk to
   a throwaway instance, or temporarily enable EC2 Serial Console in the AWS
