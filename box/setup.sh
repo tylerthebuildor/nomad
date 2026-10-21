@@ -74,6 +74,36 @@ set_hostname() { # so the prompt reads ubuntu@<name>, across reboots
   NOTE="$HOST"
 }
 
+memory_safety() { # running out of RAM kills one process, not the whole box
+  # Swap, so a burst spills to disk instead of failing.
+  if [ -z "$(swapon --show --noheadings)" ]; then
+    { sudo fallocate -l 4G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096; } &&
+      sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile || return
+    grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+  fi
+  # earlyoom kills the biggest process before the box locks up. The kernel's own
+  # OOM killer only acts once swap is gone and the box is already thrashing.
+  # Avoided: the processes that keep you connected (killing tiny ones frees
+  # nothing anyway). Preferred: language servers, which restart on their own.
+  # A runaway Claude session can be killed; its transcript stays, `claude --resume`.
+  apt_get install -y earlyoom || return
+  echo "EARLYOOM_ARGS=\"-m 8 -s 15 -r 3600 --prefer '^(rust-analyzer|gopls|tsserver|next-server.*)\$' --avoid '^(tailscaled|tmux: server|mosh-server|systemd.*|dbus-daemon|.sd-pam.)\$'\"" |
+    sudo tee /etc/default/earlyoom >/dev/null &&
+    sudo systemctl enable earlyoom && sudo systemctl restart earlyoom || return
+  # Keep tailscaled's memory from being reclaimed. No OOMScoreAdjust=-1000 (older
+  # boxes had it): Tailscale SSH sessions are its children and inherit it, which
+  # made every login, and everything Claude ran, unkillable. The box then hung.
+  sudo mkdir -p /etc/systemd/system/tailscaled.service.d &&
+    printf '[Service]\nMemoryMin=128M\n' | sudo tee /etc/systemd/system/tailscaled.service.d/nomad-memory.conf >/dev/null &&
+    sudo systemctl daemon-reload || return
+  # Fix a running older box in place (restarting tailscaled would drop you).
+  local p
+  for p in $(pgrep -x tailscaled; pgrep -x mosh-server; pgrep -u "$(id -u)"); do
+    [ "$(cat "/proc/$p/oom_score_adj" 2>/dev/null)" = -1000 ] && echo 0 | sudo tee "/proc/$p/oom_score_adj" >/dev/null
+  done
+  NOTE="$(free -m | awk '/^Swap/{printf "%.0f", $2/1024}')G swap · earlyoom"
+}
+
 node_js() { # Node via nvm, pnpm + yarn via corepack
   [ -s "$NVM_DIR/nvm.sh" ] || curl -fsS -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash || return
   . "$NVM_DIR/nvm.sh"
@@ -301,6 +331,7 @@ ATTACH
 printf '\n  %s%s◆ Setting up %s%s\n\n' "$ACC" "$B" "$HOST" "$R"
 step "System packages"  ""                                   system_packages
 step "Hostname"         ""                                   set_hostname
+step "Memory safety"    ""                                   memory_safety
 step "Node"             '[ -d "$NVM_DIR/versions/node" ]'    node_js
 step "Bun"              'have bun'                           bun_js
 step "Deno"             'have deno'                          deno_js
