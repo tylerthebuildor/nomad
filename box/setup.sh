@@ -279,7 +279,9 @@ shell_and_tmux() {
   add_line 'export PATH="$HOME/.bun/bin:$PATH"'
   add_line 'export DENO_INSTALL="$HOME/.deno"'
   add_line '[ -d "$DENO_INSTALL/bin" ] && export PATH="$DENO_INSTALL/bin:$PATH"'
-  add_line "alias claw='claude --permission-mode bypassPermissions --'"
+  # No trailing --: it made `claw --resume <id>` send "--resume <id>" as the prompt.
+  sed -i '/^alias claw=/d' "$rc" 2>/dev/null
+  add_line "alias claw='claude --permission-mode bypassPermissions'"
 
   # tmux, tuned for a phone (Termux + mosh).
   cat >"$HOME/.tmux.conf" <<'TMUXCONF'
