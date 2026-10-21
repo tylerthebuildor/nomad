@@ -266,6 +266,11 @@ you, ✗ failed with its last lines. The full install log is on the box at
 - **Bigger box**: set `instance_type` (e.g. `m7g.xlarge`) in
   `terraform/terraform.tfvars` and `make up`: a quick stop/start, your disk is
   kept. `root_volume_gb` grows live. Stay on ARM (Graviton) types.
+- **Out of memory**: the box has 4 GB of swap and runs earlyoom, which kills the
+  biggest process (often a Claude session) before the box locks up. Your
+  connection (Tailscale, mosh, tmux) is the last thing it picks. A killed Claude session is
+  not lost: `claude --resume` picks it back up. Running many sessions at once on
+  the 8 GB default? That is the time for a bigger box.
 - **Locked out**: Tailscale is the only door, by design. A box with nothing on it
   yet: `make down && make up`. Otherwise stop the instance and attach its disk to
   a throwaway instance, or temporarily enable EC2 Serial Console in the AWS
