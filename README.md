@@ -82,16 +82,23 @@ You land in a menu of running tmux sessions: what each is running (like
 you left off, or **+ new session** to start Claude Code (`claw`) in `~/dev`. So
 each Termux tab can work on something different.
 
+Below them, **Previous Claude sessions**: the 20 most recently used Claude
+conversations that are not open anywhere, newest first. Pick one to resume it in
+its own tmux session, in the folder it ran in. So after a reboot or a dropped
+connection, every conversation is one tap away. (Claude keeps each one for 30
+days after you last used it.)
+
 | Key | Does |
 |---|---|
 | <kbd>enter</kbd> | open the session, or start a new one |
+| <kbd>ctrl</kbd> <kbd>p</kbd> | peek: a session's screen, or a Claude session's last messages |
 | <kbd>ctrl</kbd> <kbd>x</kbd> · <kbd>ctrl</kbd> <kbd>r</kbd> | kill · rename it |
 | <kbd>esc</kbd> | plain shell, no menu |
 | *type* | filter |
 | <kbd>ctrl</kbd> <kbd>b</kbd> then <kbd>S</kbd> | the menu again, from inside tmux |
 | <kbd>ctrl</kbd> <kbd>b</kbd> then <kbd>d</kbd> | leave; the session keeps running |
 
-`●` is open in a tab, `○` is waiting for you. `t <name>` jumps straight to a session.
+`●` is open in a tab, `○` is waiting for you, `↺` can be resumed. `t <name>` jumps straight to a session.
 
 ## 🗣️ Hear Claude on your phone: `yap`
 

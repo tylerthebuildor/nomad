@@ -7,12 +7,18 @@
 # Sessions are not tied to a project; cd wherever you like once inside.
 #
 # Usage:
-#   t             menu (enter: open, ctrl-x: kill, ctrl-r: rename, esc: plain shell)
+#   t             menu (enter: open, ctrl-p: peek, ctrl-x: kill, ctrl-r: rename,
+#                 esc: plain shell)
 #   t <name>      open the session with that name, or start it if there is none
 #   inside tmux:  prefix + S opens the same menu in a popup to switch
 #
 # New sessions start in NOMAD_START_DIR (default: ~/dev, else ~) and run
 # NOMAD_NEW_CMD (default: claw, i.e. Claude Code); set it empty for a plain shell.
+#
+# Below the tmux sessions: previous Claude sessions that are not open anywhere
+# (the newest NOMAD_CLAUDE_MAX, default 20). Picking one starts a tmux session
+# that resumes it (claw --resume) in the directory it ran in. Claude keeps a
+# session for 30 days after its last use (cleanupPeriodDays).
 set -uo pipefail
 
 SELF="$(readlink -f "$0")"
@@ -23,6 +29,8 @@ infocmp "${TERM:-dumb}" >/dev/null 2>&1 || export TERM=xterm-256color
 START="${NOMAD_START_DIR:-$HOME/dev}"
 [ -d "$START" ] || START="$HOME"
 NEW_CMD="${NOMAD_NEW_CMD-claw}"
+CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+CLAUDE_MAX="${NOMAD_CLAUDE_MAX:-20}"
 
 # Shared palette, fit() and the nomad header (lib/ui.sh). t runs on every login,
 # so if that is missing it falls back to plain text instead of failing.
@@ -52,8 +60,15 @@ list() {
   local new="${ACC}${B}+ new session${R}"
   [ -n "$NEW_CMD" ] && new+="  ${FAINT}${NEW_CMD} in ${START/#$HOME/\~}${R}"
   printf '\t%s\n' "$new"
-  tmux has-session 2>/dev/null || return 0
+  tmux_rows "$width"
+  local claude; claude="$(claude_rows "$width")"
+  [ -n "$claude" ] && printf '#\t%s%sPrevious Claude sessions%s\n%s\n' "$FAINT" "$B" "$R" "$claude"
+  return 0
+}
 
+tmux_rows() {
+  local width="$1"
+  tmux has-session 2>/dev/null || return 0
   local rows=() nw=4 line
   while IFS= read -r line; do
     rows+=("$line"); local n="${line#*$'\t'}"; n="${n%%$'\t'*}"
@@ -80,17 +95,103 @@ list() {
   done
 }
 
+# Claude Code keeps each conversation in ~/.claude/projects/<dir>/<id>.jsonl, and
+# each running one in ~/.claude/sessions/<pid>.json. Newest first, skipping the
+# open ones, the untitled (never really used) and throwaway ones under /tmp.
+claude_title() { # the /rename name wins over Claude's own title
+  local t
+  t="$(grep -h '"type":"custom-title"' "$1" | tail -1 | jq -r '.customTitle // empty' 2>/dev/null)"
+  [ -n "$t" ] || t="$(grep -h '"type":"ai-title"' "$1" | tail -1 | jq -r '.aiTitle // empty' 2>/dev/null)"
+  printf '%s' "$t"
+}
+claude_cwd() { grep -m1 -o '"cwd":"[^"]*"' "$1" | cut -d'"' -f4; }
+
+claude_last() { # when the last message was sent (epoch); not the file's mtime,
+  # which also moves when a session is merely reopened
+  local ts
+  ts="$(tail -c 300000 "$1" | grep -o '"timestamp":"[^"]*"' | tail -1 | cut -d'"' -f4)"
+  if [ -n "$ts" ]; then date -d "$ts" +%s 2>/dev/null; else stat -c %Y "$1"; fi
+}
+
+claude_rows() {
+  local width="$1" open=" " f pid id title cwd where last n=0
+  [ -d "$CLAUDE_DIR/projects" ] && command -v jq >/dev/null 2>&1 || return 0
+  for f in "$CLAUDE_DIR"/sessions/*.json; do
+    [ -f "$f" ] || continue
+    read -r pid id < <(jq -r '"\(.pid) \(.sessionId)"' "$f" 2>/dev/null)
+    kill -0 "$pid" 2>/dev/null && open+="$id "
+  done
+  local tw=$((width - 22)); [ "$tw" -lt 16 ] && tw=16
+  while IFS=$'\t' read -r last f; do
+    id="$(basename "$f" .jsonl)"
+    case "$open" in *" $id "*) continue ;; esac
+    title="$(claude_title "$f")"; [ -n "$title" ] || continue
+    cwd="$(claude_cwd "$f")"
+    case "$cwd" in ""|/tmp/*) continue ;; esac
+    [ -d "$cwd" ] || continue
+    if [ "$cwd" = "$HOME" ]; then where="~"; else where="${cwd##*/}"; fi
+    printf 'resume:%s\t%s↺%s %s%3s%s  %s  %s%s%s\n' "$id" "$IDLE" "$R" "$DIM" \
+      "$(ago "$last")" "$R" "$(fit "$title" "$tw")" "$DIR" "$(fit "$where" 10)" "$R"
+    n=$((n + 1)); [ "$n" -ge "$CLAUDE_MAX" ] && break
+  done < <(for f in "$CLAUDE_DIR"/projects/*/*.jsonl; do
+             case "$f" in *.orphaned-*) continue ;; esac
+             [ -f "$f" ] && printf '%s\t%s\n' "$(claude_last "$f")" "$f"
+           done | sort -rn)
+}
+
+claude_file() { ls "$CLAUDE_DIR"/projects/*/"$1".jsonl 2>/dev/null | head -1; }
+
+# ctrl-p: what is in the highlighted entry. A tmux session shows its screen; a
+# previous Claude session shows your last message and Claude's last reply.
+peek() {
+  local key="$1" f
+  case "$key" in
+    "") printf 'Starts %s in %s\n' "${NEW_CMD:-a shell}" "${START/#$HOME/\~}" ;;
+    "#") printf 'Claude sessions not open anywhere, newest first.\nPick one to resume it in its own tmux session.\n' ;;
+    resume:*)
+      f="$(claude_file "${key#resume:}")"; [ -n "$f" ] || return 0
+      printf '%s%s%s\n%s%s · %s ago%s\n' "$B" "$(claude_title "$f")" "$R" "$DIM" \
+        "$(claude_cwd "$f" | sed "s|^$HOME|~|")" "$(ago "$(claude_last "$f")")" "$R"
+      tail -n 3000 "$f" | jq -r '
+        select(.isMeta | not) |
+        if .type == "user" then
+          (.message.content | if type == "string" then . else (map(select(.type? == "text") | .text) | join(" ")) end
+            | gsub("</?pasted_content[^>]*>"; "") | sub("^\\s+"; "")) as $t
+          | select(($t | length) > 0 and ($t | startswith("<") | not)) | "U\t\($t)"
+        elif .type == "assistant" then
+          (.message.content // [] | map(select(.type? == "text") | .text) | join("\n")) as $t
+          | select(($t | length) > 0) | "A\t\($t)"
+        else empty end | gsub("\n"; "\u001f")' 2>/dev/null |
+        awk -F'\t' '$1=="U"{u=$2} $1=="A"{a=$2} END{
+          if (u!="") printf "\n\033[1mYou:\033[0m %s\n", substr(u,1,600)
+          if (a!="") printf "\n\033[1mClaude:\033[0m %s\n", substr(a,1,1500) }' | tr '\037' '\n' ;;
+    *) tmux capture-pane -p -e -t "=$key:" 2>/dev/null | # its screen, minus the empty bottom
+         awk 'NF { last = NR } { l[NR] = $0 } END { for (i = 1; i <= last; i++) print l[i] }' | tail -n 40 ;;
+  esac
+}
+
+# A tmux session for a previous Claude session: named after the first two words
+# of its title, started in its directory, resuming it.
+open_claude() {
+  local id="$1" f name base i=2
+  f="$(claude_file "$id")"; [ -n "$f" ] || { echo "t: no Claude session $id" >&2; exit 1; }
+  base="$(claude_title "$f" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-*//' | cut -d- -f1-2 | cut -c1-20 | sed 's/-*$//')"
+  base="${base:-claude}"; name="$base"
+  while tmux has-session -t "=$name" 2>/dev/null; do name="$base-$i"; i=$((i + 1)); done
+  START="$(claude_cwd "$f")" NEW_CMD="claw --resume $id" open "$name"
+}
+
 header() {
   local count=0 now
   tmux has-session 2>/dev/null && count="$(tmux list-sessions 2>/dev/null | wc -l)"
   now="$(date +%H:%M)"
-  local sep="  " # key help fits one line from ~42 columns; wrap it below that
-  [ "$(cols)" -lt 42 ] && sep=$'\n'
+  local sep="  " # key help fits one line from ~48 columns; wrap it below that
+  [ "$(cols)" -lt 48 ] && sep=$'\n'
   nomad_header "$(hostname -s) · ${now}" "${count} session$([ "$count" = 1 ] || echo s)"
   printf '%s\n' \
     "" \
-    "${ACC}⏎${R} ${DIM}open${R}  ${ACC}^x${R} ${DIM}kill${R}$sep${ACC}^r${R} ${DIM}rename${R}  ${ACC}esc${R} ${DIM}shell${R}" \
-    "${LIVE}●${R} ${FAINT}open in a tab${R}  ${IDLE}○${R} ${FAINT}waiting${R}"
+    "${ACC}⏎${R} ${DIM}open${R}  ${ACC}^p${R} ${DIM}peek${R}  ${ACC}^x${R} ${DIM}kill${R}$sep${ACC}^r${R} ${DIM}rename${R}  ${ACC}esc${R} ${DIM}shell${R}" \
+    "${LIVE}●${R} ${FAINT}open in a tab${R}  ${IDLE}○${R} ${FAINT}waiting${R}  ${IDLE}↺${R} ${FAINT}resume${R}"
 }
 
 # First free name: 1, 2, 3, ...
@@ -109,6 +210,7 @@ open() {
 
 case "${1:-}" in
   --list) list; exit 0 ;;
+  --peek) peek "${2:-}"; exit 0 ;;
   -h|--help) sed -n '2,15p' "$SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
   "") ;;
   *) open "$1"; exit ;;
@@ -120,10 +222,16 @@ sel="$(list | fzf --ansi --delimiter='\t' --with-nth=2 --no-sort --reverse --hei
   --header="$(header)" --header-first --info=hidden --no-scrollbar \
   --prompt='  › ' --pointer='▌' --ellipsis='…' --margin=1,0,0,0 \
   --color="$FZF_COLORS" \
+  --preview "'$SELF' --peek {1}" --preview-window=down,50%,wrap,border-top,hidden \
+  --bind "ctrl-p:toggle-preview" \
   --bind "ctrl-x:execute-silent([ -n {1} ] && tmux kill-session -t ={1})+reload('$SELF' --list)" \
-  --bind "ctrl-r:execute([ -n {1} ] && printf '\n  \033[38;5;208m›\033[0m rename {1} to: ' && read -r n </dev/tty && [ -n \"\$n\" ] && tmux rename-session -t ={1} \"\${n//[.:]/_}\")+reload('$SELF' --list)")" || exit 0
+  --bind "ctrl-r:execute(tmux has-session -t ={1} 2>/dev/null && printf '\n  \033[38;5;208m›\033[0m rename {1} to: ' && read -r n </dev/tty && [ -n \"\$n\" ] && tmux rename-session -t ={1} \"\${n//[.:]/_}\")+reload('$SELF' --list)")" || exit 0
 
 name="${sel%%$'\t'*}"
+case "$name" in
+  "#") exec "$SELF" ;; # the section title: back to the menu
+  resume:*) open_claude "${name#resume:}"; exit ;;
+esac
 if [ -z "$name" ]; then
   printf '\n  %s›%s name for the new session %s(enter for %s)%s: ' "$ACC" "$R" "$DIM" "$(next_name)" "$R"
   read -r name </dev/tty
