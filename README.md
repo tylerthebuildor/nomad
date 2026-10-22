@@ -119,7 +119,8 @@ sends.
 Run `auth` on the box (or <kbd>ctrl</kbd> <kbd>b</kbd> then <kbd>A</kbd>) for a
 board of your sign-ins: ✓ or ✗ for gcloud, AWS, GitHub, Vercel and Claude Code.
 Pick one and you get a short link, `http://nomad:8085`, to open on your phone;
-sign in, and paste the code back if asked. The link works only on your tailnet,
+sign in, and paste the code back if asked. If the link timed out while you were
+away, press enter without a code for a fresh one. The link works only on your tailnet,
 only while you sign in, and lands on the service's real sign-in page.
 
 When Google Cloud expires (often daily), Claude notices and pops the sign-in up
