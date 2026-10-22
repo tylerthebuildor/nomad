@@ -1,0 +1,261 @@
+#!/usr/bin/env python3
+"""tg: your Telegram bot, from the box. Talks to one chat only: yours.
+
+  tg setup                            connect your own bot (once; asks for its
+                                      token, then finds your chat by itself)
+  tg send "text"                      a message (markdown to-dos show as ☐ / ☑)
+  echo "text" | tg send               the same, from stdin
+  tg send --file a.md [b.md ...] [-c "caption"]
+                                      one or more files (up to 50 MB each)
+  tg inbox [N]                        what you sent the bot, newest first (default
+                                      10): new ones marked ● and shown in full,
+                                      files and photos saved to ~/inbox/telegram/
+  tg inbox --all                      the whole local history
+
+There is no listener: `tg inbox` fetches on demand. Telegram keeps unread messages
+for 24 hours, so check at least daily; everything fetched is kept locally in
+~/.local/share/tg/inbox.jsonl. Messages from anyone but you are ignored.
+
+Settings: ~/.config/nomad/telegram.env   BOT_TOKEN=...   CHAT_ID=...
+(written by tg setup; TG_ENV points somewhere else)
+"""
+import json, mimetypes, os, re, sys, time, uuid, urllib.error, urllib.parse, urllib.request
+from datetime import datetime
+from pathlib import Path
+
+ENV = Path(os.environ.get("TG_ENV") or Path.home() / ".config/nomad/telegram.env")
+STATE = Path.home() / ".local/share/tg"
+INBOX = Path.home() / "inbox/telegram"
+HISTORY, OFFSET = STATE / "inbox.jsonl", STATE / "offset"
+
+
+def die(msg):
+    sys.exit(f"tg: {msg}")
+
+
+def settings():
+    vals = {}
+    try:
+        for line in ENV.read_text().splitlines():
+            if "=" in line and not line.lstrip().startswith("#"):
+                k, v = line.split("=", 1)
+                vals[k.strip()] = v.strip().strip("'\"")
+    except FileNotFoundError:
+        die("not set up yet: run tg setup")
+    if not vals.get("BOT_TOKEN") or not vals.get("CHAT_ID"):
+        die(f"{ENV} needs BOT_TOKEN and CHAT_ID")
+    return vals["BOT_TOKEN"], vals["CHAT_ID"]
+
+
+TOKEN = CHAT = API = ""
+
+
+def use(token, chat=""):
+    global TOKEN, CHAT, API
+    TOKEN, CHAT, API = token, chat, f"https://api.telegram.org/bot{token}"
+
+
+def call(method, data=None, files=None, timeout=30):
+    """One Bot API call; returns `result` or exits with Telegram's reason."""
+    headers = {}
+    if files:  # multipart/form-data, by hand (no third-party packages)
+        boundary = uuid.uuid4().hex
+        body = b""
+        for k, v in (data or {}).items():
+            body += f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode()
+        for k, path in files.items():
+            mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+            body += (f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"; filename="{path.name}"\r\n'
+                     f"Content-Type: {mime}\r\n\r\n").encode() + path.read_bytes() + b"\r\n"
+        body += f"--{boundary}--\r\n".encode()
+        headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+    else:
+        body = urllib.parse.urlencode(data or {}).encode()
+    try:
+        with urllib.request.urlopen(urllib.request.Request(f"{API}/{method}", body, headers), timeout=timeout) as r:
+            res = json.load(r)
+    except urllib.error.HTTPError as e:
+        res = json.load(e)
+    except OSError as e:
+        die(f"could not reach Telegram ({e})")
+    if not res.get("ok"):
+        die(f"telegram said: {res.get('description')}")
+    return res["result"]
+
+
+def todos(text):
+    """Markdown checklists read better as boxes in a chat."""
+    text = re.sub(r"(?m)^(\s*)[-*] \[ \] ", r"\1☐ ", text)
+    return re.sub(r"(?m)^(\s*)[-*] \[[xX]\] ", r"\1☑ ", text)
+
+
+def send(args):
+    files, caption, words = [], None, []
+    it = iter(args)
+    for a in it:
+        if a in ("--file", "-f"):
+            continue
+        if a in ("-c", "--caption"):
+            caption = next(it, None)
+        elif os.path.isfile(a) and ("--file" in args or "-f" in args):
+            files.append(Path(a))
+        else:
+            words.append(a)
+    if "--file" in args or "-f" in args:
+        if not files:
+            die("no such file(s): " + " ".join(words))
+        caption = caption or (" ".join(words) or None)
+        for i, f in enumerate(files):
+            data = {"chat_id": CHAT}
+            if caption and i == 0:
+                data["caption"] = caption[:1024]
+            call("sendDocument", data, {"document": f}, timeout=120)
+        print(f"sent ✓ {len(files)} file{'s' if len(files) > 1 else ''}")
+        return
+    text = " ".join(words).strip() or (sys.stdin.read().strip() if not sys.stdin.isatty() else "")
+    if not text:
+        die('nothing to send (tg send "text", or tg send --file path)')
+    text = todos(text)
+    for start in range(0, len(text), 4096):  # Telegram's message limit
+        call("sendMessage", {"chat_id": CHAT, "text": text[start:start + 4096], "disable_web_page_preview": "true"})
+    print("sent ✓")
+
+
+def save_file(file_id, name):
+    path = call("getFile", {"file_id": file_id}).get("file_path")
+    if not path:
+        return None
+    INBOX.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    dest = INBOX / f"{stamp}_{name}"
+    n = 1
+    while dest.exists():
+        dest = INBOX / f"{stamp}_{n}_{name}"
+        n += 1
+    with urllib.request.urlopen(f"https://api.telegram.org/file/bot{TOKEN}/{path}", timeout=120) as r:
+        dest.write_bytes(r.read())
+    return str(dest).replace(str(Path.home()), "~", 1)
+
+
+def fetch():
+    """New messages from Telegram into the local history; returns how many."""
+    STATE.mkdir(parents=True, exist_ok=True)
+    offset = int(OFFSET.read_text()) if OFFSET.exists() else 0
+    updates = call("getUpdates", {"offset": offset, "timeout": 0, "allowed_updates": '["message"]'})
+    new, ignored = [], 0
+    for u in updates:
+        offset = max(offset, u["update_id"] + 1)
+        m = u.get("message") or {}
+        if str(m.get("chat", {}).get("id")) != CHAT:
+            ignored += 1
+            continue
+        rec = {"id": u["update_id"], "date": m.get("date", int(time.time())),
+               "text": m.get("text") or m.get("caption") or ""}
+        try:
+            if m.get("document"):
+                d = m["document"]
+                rec["file"] = save_file(d["file_id"], d.get("file_name") or "file")
+            elif m.get("photo"):
+                rec["file"] = save_file(m["photo"][-1]["file_id"], "photo.jpg")
+            elif m.get("voice") or m.get("audio") or m.get("video"):
+                rec["text"] = rec["text"] or "(a voice note, audio or video: not saved)"
+        except SystemExit as e:  # e.g. over Telegram's 20 MB download limit
+            rec["text"] = (rec["text"] + f" (file not saved: {e})").strip()
+        new.append(rec)
+    with HISTORY.open("a") as h:
+        for r in new:
+            h.write(json.dumps(r) + "\n")
+    if updates:  # confirm, so Telegram drops what we now keep locally
+        call("getUpdates", {"offset": offset, "timeout": 0, "limit": 1})
+        OFFSET.write_text(str(offset))
+    if ignored:
+        print(f"(ignored {ignored} message{'s' if ignored > 1 else ''} from other chats)")
+    return len(new)
+
+
+def ago(ts):
+    s = int(time.time() - ts)
+    for unit, n in (("d", 86400), ("h", 3600), ("m", 60)):
+        if s >= n:
+            return f"{s // n}{unit} ago"
+    return "just now"
+
+
+def inbox(args):
+    count = fetch()
+    limit = None if "--all" in args else int(next((a for a in args if a.isdigit()), 10))
+    lines = HISTORY.read_text().splitlines() if HISTORY.exists() else []
+    recs = [json.loads(l) for l in lines]
+    if not recs:
+        print("inbox: empty (send the bot a message or file on Telegram, then check again)")
+        return
+    print(f"inbox: {count} new · {len(recs)} total, newest first")
+    for i, r in enumerate(reversed(recs[-limit:] if limit else recs)):
+        fresh = i < count
+        text = r["text"] if fresh else (r["text"][:200] + ("…" if len(r["text"]) > 200 else ""))
+        print(f"\n{'●' if fresh else '○'} {ago(r['date'])} · {datetime.fromtimestamp(r['date']):%a %b %d %H:%M}")
+        if text:
+            print("  " + text.replace("\n", "\n  "))
+        if r.get("file"):
+            print(f"  file: {r['file']}")
+
+
+def setup():
+    """Connect a bot: its token from @BotFather, then your chat id from the first
+    message you send it. Only that chat is ever used."""
+    if not sys.stdin.isatty():
+        die("tg setup asks questions: run it in a terminal")
+    if ENV.exists() and input(f"Already set up ({ENV}). Replace it? [y/N] ").strip().lower() != "y":
+        return
+    print("""
+1. In Telegram, open @BotFather (https://t.me/BotFather) and send /newbot.
+   Pick any name; it replies with a token like 123456:ABC-DEF...
+2. Paste that token here.
+""")
+    use(input("token: ").strip())
+    try:
+        bot = call("getMe")["username"]
+    except SystemExit:
+        die("Telegram did not accept that token; copy it again from @BotFather")
+    call("deleteWebhook")  # getUpdates only works without one
+    offset = 0
+    print(f"\n3. Now send @{bot} any message (https://t.me/{bot}). Waiting…")
+    deadline = time.time() + 300
+    while time.time() < deadline:
+        for u in call("getUpdates", {"offset": offset, "timeout": 25}, timeout=35):
+            offset = u["update_id"] + 1
+            chat = (u.get("message") or {}).get("chat", {})
+            if chat.get("type") != "private":
+                continue
+            who = " ".join(filter(None, [chat.get("first_name"), chat.get("last_name")])) or chat.get("username")
+            if input(f"Got a message from {who}. Is that you? [Y/n] ").strip().lower() in ("", "y", "yes"):
+                call("getUpdates", {"offset": offset, "timeout": 0, "limit": 1})  # done with these
+                ENV.parent.mkdir(parents=True, exist_ok=True)
+                ENV.touch(mode=0o600)
+                ENV.write_text(f"BOT_TOKEN={TOKEN}\nCHAT_ID={chat['id']}\n")
+                use(TOKEN, str(chat["id"]))
+                call("sendMessage", {"chat_id": CHAT, "text": "Connected to your box ✓"})
+                print(f"Done ✓  Saved to {ENV}. Try: tg send \"hello\"")
+                return
+    die("no message arrived within 5 minutes; run tg setup again")
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return
+    cmd, rest = args[0], args[1:]
+    if cmd == "setup":
+        return setup()
+    use(*settings())
+    if cmd == "send":
+        send(rest)
+    elif cmd == "inbox":
+        inbox(rest)
+    else:
+        die(f"unknown command '{cmd}' (tg setup, tg send, tg inbox; tg --help)")
+
+
+if __name__ == "__main__":
+    main()

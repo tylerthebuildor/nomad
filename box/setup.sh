@@ -234,7 +234,7 @@ nomad_tools() { # box/bin -> ~/.local/bin; lib/, box/auth -> ~/.local/share/noma
     cp -R "$NOMAD_REPO/lib" "$share/lib" && cp -R "$NOMAD_REPO/box/auth" "$share/auth" || return
   rm -rf "$HOME/.claude/skills/gauth" # replaced by the auth skill
   cp -R "$NOMAD_REPO/box/skills"/. "$HOME/.claude/skills/" || return
-  NOTE="t, auth, yap · Claude skills"
+  NOTE="t, auth, yap, tg · Claude skills"
 }
 
 your_settings() { # config/ (asked once by make up) -> ~/.config/nomad
@@ -245,6 +245,9 @@ your_settings() { # config/ (asked once by make up) -> ~/.config/nomad
   elif [ ! -f "$HOME/.config/nomad/auth.env" ] && [ -f "$NOMAD_REPO/config/auth.env.example" ]; then
     install -m 600 "$NOMAD_REPO/config/auth.env.example" "$HOME/.config/nomad/auth.env"
   fi
+  # Telegram bot for tg, if you saved one in config/ (otherwise: tg setup on the box).
+  [ -f "$NOMAD_REPO/config/telegram.env" ] &&
+    install -m 600 "$NOMAD_REPO/config/telegram.env" "$HOME/.config/nomad/telegram.env"
   # Git identity, so commits are yours, not ubuntu@<host> (which GitHub will not
   # attribute and Vercel's GitHub integration rejects).
   if [ -f "$NOMAD_REPO/config/git.env" ]; then
