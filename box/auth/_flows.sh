@@ -9,6 +9,9 @@
 #   auth_device_flow CLI prints a link and a short code, then finishes by itself
 #                    once you approve on the website (gh, vercel, aws sso)
 #
+# In a paste flow, pressing enter without a code gets a fresh link, for when the
+# old one timed out while you were away.
+#
 # Both hide the CLI's own output and show a phone-sized card instead, with a short
 # link (http://<host>:8085) served only on the tailnet while the flow runs, that
 # redirects to the CLI's link. The raw output goes to a log, shown if it fails.
@@ -31,22 +34,57 @@ auth_device_flow() {
 
 _auth_run() {
   local log status filter filter_pid
-  log="$(mktemp -t nomad-auth.XXXXXX)"
-  export AUTH_FLOW AUTH_URL_RE AUTH_CODE_RE AUTH_HINT AUTH_LOG="$log"
+  export AUTH_FLOW AUTH_URL_RE AUTH_CODE_RE AUTH_HINT
   export AUTH_TITLE="$SVC_NAME" AUTH_WHO="${AUTH_WHO:-}"
   export AUTH_PORT="${AUTH_SHORTLINK_PORT:-8085}"
   AUTH_HOST="$(hostname -s)"; export AUTH_HOST
   AUTH_BIND="$(tailscale ip -4 2>/dev/null | head -1)"; export AUTH_BIND
   export R B DIM FAINT ACC NAME BAD
 
-  exec {filter}> >(perl -e "$_AUTH_FILTER")
-  filter_pid=$!
-  "$@" >&"$filter" 2>&1
-  status=$?
-  exec {filter}>&- # the filter sees EOF, stops the short link, finishes printing
-  wait "$filter_pid" 2>/dev/null
+  # A paste flow's link expires if you wait too long. So when you are at a
+  # terminal, we read what you type and hand it to the CLI: pressing enter on its
+  # own starts the CLI again for a fresh link instead.
+  AUTH_RETRY=0; [ "$AUTH_FLOW" = paste ] && [ -t 0 ] && AUTH_RETRY=1
+  export AUTH_RETRY
+  while true; do
+    log="$(mktemp -t nomad-auth.XXXXXX)"; export AUTH_LOG="$log"
+    exec {filter}> >(perl -e "$_AUTH_FILTER")
+    filter_pid=$!
+    if [ "$AUTH_RETRY" = 1 ]; then
+      _auth_relay "$@"; status=$?
+    else
+      "$@" >&"$filter" 2>&1; status=$?
+    fi
+    exec {filter}>&- # the filter sees EOF, stops the short link, finishes printing
+    wait "$filter_pid" 2>/dev/null
+    [ "$status" -eq 200 ] || break
+    rm -f "$log"
+    clear; printf '\n  %s↻ a new link%s\n' "$ACC" "$R"
+  done
   [ "$status" -ne 0 ] && _auth_show_log "$log"
   rm -f "$log"
+  return "$status"
+}
+
+# Runs the CLI with its input coming from us, and relays each line you type.
+# Returns the CLI's exit status, or 200 when you asked for a new link.
+_auth_relay() {
+  local dir pid in line
+  dir="$(mktemp -d -t nomad-auth.XXXXXX)"; mkfifo "$dir/in"
+  "$@" <"$dir/in" >&"$filter" 2>&1 &
+  pid=$!
+  exec {in}>"$dir/in"
+  trap '' PIPE # the CLI may exit between our check and a write
+  while kill -0 "$pid" 2>/dev/null; do
+    IFS= read -r -t 1 line || continue
+    case "$line" in
+      ""|r|R|new) kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+        exec {in}>&-; rm -rf "$dir"; return 200 ;;
+      *) printf '%s\n' "$line" >&"$in" ;;
+    esac
+  done
+  wait "$pid"; local status=$?
+  exec {in}>&-; rm -rf "$dir"
   return "$status"
 }
 
@@ -92,6 +130,7 @@ sub card {
   if ($E{AUTH_FLOW} eq "paste") {
     $o .= "\n  ${acc}2$r  Sign in, then copy the code\n";
     $o .= "\n  ${acc}3$r  Paste it here\n";
+    $o .= "     ${faint}Link timed out? Press enter for a new one.$r\n" if $E{AUTH_RETRY};
   } else {
     if (length $code) {
       if (index($url, $code) >= 0) {
