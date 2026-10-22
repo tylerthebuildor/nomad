@@ -26,6 +26,7 @@ Leave the laptop. Build from anywhere.
 - 🗂️ **A session menu on every login.** Each tab picks its own session; new ones start Claude Code.
 - 🔑 **One `auth` command for every sign-in**, with short links you can actually type on a phone.
 - 🗣️ **Claude's replies read aloud on your phone** (`yap`), if you want them.
+- 💬 **Claude on Telegram** (`tg`): it texts you when a long job finishes, sends you files, and reads what you send it.
 - 🧰 **The toolbox:** gcloud, AWS, GitHub, Vercel and Claude Code CLIs, kubectl, Terraform, Node, Bun, Deno, Rust, Go, language servers.
 
 ## 🚀 Start
@@ -113,6 +114,21 @@ Ask Claude "turn yap off" (or on), or run `yap off`, `yap on`, `yap stop`
 (cut off the current reply) and `yap status` on the box. Your phone listens to
 the box over your tailnet and only ever speaks; it never runs anything the box
 sends.
+
+## 💬 Telegram: `tg`
+
+Connect your own Telegram bot once and Claude can message you, send you files
+(a plan, a to-do list) and read what you send it from your phone: "send me the
+plan", "check my Telegram". It pings you on its own only when it matters, like a
+long job finishing or being stuck on your answer.
+
+Run `tg setup` on the box: make a bot with
+[@BotFather](https://t.me/BotFather) (`/newbot`), paste its token, then send the
+bot any message and setup finds your chat. The bot only ever talks to you and
+ignores everyone else. Then `tg send "text"`, `tg send --file plan.md` and
+`tg inbox` work for you and for Claude. The settings live in
+`~/.config/nomad/telegram.env`; copy that file to `config/telegram.env` on your
+computer and `make bootstrap` puts it back on a rebuilt box.
 
 ## 🔑 Signing in: `auth`
 

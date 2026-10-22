@@ -14,6 +14,10 @@ terraform/backend.hcl
 # Personal settings (see config/*.example): asked once by make up, never committed
 config/auth.env
 config/git.env
+config/telegram.env
 
 # make up working files (plans, new-box marker)
 terraform/.nomad*
+
+# Python bytecode (box/bin/tg)
+__pycache__/
