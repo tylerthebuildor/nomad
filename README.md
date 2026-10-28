@@ -203,7 +203,7 @@ config/      your settings; only the .example files are committed
 | | |
 |---|---|
 | 🛡️ **Network** | Its own VPC with **zero public inbound**: the security group has no ingress rules; outbound is open for installs and Tailscale. |
-| 💻 **Instance** | **t4g.xlarge (ARM/Graviton), Ubuntu 24.04**, 100 GB **encrypted** gp3 disk. |
+| 💻 **Instance** | **t4g.xlarge (ARM/Graviton), Ubuntu 24.04**, 200 GB **encrypted** gp3 disk. |
 | 🔗 **Access** | First boot installs Tailscale and mosh, joins **your** tailnet with Tailscale SSH as `nomad`, and turns off the regular SSH server. |
 | 📦 **Then** | Over the tailnet: the CLIs and languages, the session menu, `auth`, Claude Code and its nomad skills, your git identity and settings, tmux tuned for phones. |
 
