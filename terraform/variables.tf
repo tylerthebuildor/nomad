@@ -19,7 +19,7 @@ variable "instance_type" {
 variable "root_volume_gb" {
   description = "Root gp3 EBS volume size in GB. Grows live; size up later."
   type        = number
-  default     = 100
+  default     = 200
 }
 
 variable "tailscale_hostname" {
